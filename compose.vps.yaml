@@ -2,7 +2,7 @@ name: keysprint
 
 services:
   keysprint:
-    image: "${KEYSPRINT_IMAGE:-ghcr.io/alumos/keysprint}:${KEYSPRINT_TAG:-1.1.0}"
+    image: "${KEYSPRINT_IMAGE:-ghcr.milu.moe/alumos/keysprint}:${KEYSPRINT_TAG:-1.2.0}"
     pull_policy: always
     restart: unless-stopped
     ports:

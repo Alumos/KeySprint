@@ -33,6 +33,7 @@ type app struct {
 	classSystemToken   string
 	classSystemTimeout time.Duration
 	classSource        string
+	classSystemETags   map[string]string
 	configMu           sync.RWMutex
 	timerMu            sync.Mutex
 	timers             map[int64]*time.Timer
@@ -84,6 +85,7 @@ func main() {
 		classSystemToken:   os.Getenv("CLASS_SYSTEM_TOKEN"),
 		classSystemTimeout: timeout,
 		classSource:        normalizeClassSource(getenv("CLASS_SOURCE", "manual")),
+		classSystemETags:   map[string]string{},
 		timers:             map[int64]*time.Timer{},
 	}
 	_ = a.loadIntegrationConfig()
@@ -212,6 +214,7 @@ func (a *app) routes() http.Handler {
 	secured.HandleFunc("POST /api/classes/sync", a.syncClasses)
 	secured.HandleFunc("GET /api/integration/class-system", a.getIntegrationConfig)
 	secured.HandleFunc("PUT /api/integration/class-system", a.updateIntegrationConfig)
+	secured.HandleFunc("POST /api/integration/class-system/test", a.testClassSystem)
 	secured.HandleFunc("GET /api/classes/{id}/students", a.getClassStudents)
 	secured.HandleFunc("DELETE /api/classes/{id}", a.deleteClass)
 	secured.HandleFunc("GET /api/analytics/student/{studentId}", a.studentAnalytics)

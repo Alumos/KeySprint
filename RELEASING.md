@@ -53,6 +53,6 @@ KeySprint 使用 Semantic Versioning，唯一版本源为根目录 [`VERSION`](V
 镜像构建会把版本号和完整提交哈希写入二进制。部署后可以使用：
 
 ```bash
-docker run --rm ghcr.io/alumos/keysprint:1.1.0 --version
+docker run --rm ghcr.io/alumos/keysprint:1.2.0 --version
 curl http://127.0.0.1:8080/api/health
 ```

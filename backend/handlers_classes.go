@@ -230,7 +230,11 @@ func (a *app) deleteClass(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "班级不存在")
 		return
 	}
-	_, _ = a.db.Exec("DELETE FROM classes WHERE id=?", id)
+	if _, err := a.db.Exec("DELETE FROM classes WHERE id=?", id); err != nil {
+		writeError(w, http.StatusInternalServerError, "删除班级失败")
+		return
+	}
+	a.clearClassSystemETags()
 	writeJSON(w, 200, map[string]any{"success": true})
 }
 

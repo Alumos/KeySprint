@@ -55,9 +55,13 @@ export default function ClassesView({ notify }: { notify: (message: string) => v
   async function sync() {
     setSyncing(true)
     try {
-      const result = await api<{ class_count: number; student_count: number }>('/api/classes/sync', { method: 'POST' })
-      notify(`已从 ClassOrbit 同步 ${result.class_count} 个班级、${result.student_count} 名学生`)
-      load()
+      const result = await api<{ unchanged: boolean; class_count?: number; student_count?: number }>('/api/classes/sync', { method: 'POST' })
+      if (result.unchanged) {
+        notify('ClassOrbit 名单没有变化，无需重复写入')
+      } else {
+        notify(`已从 ClassOrbit 同步 ${result.class_count} 个班级、${result.student_count} 名学生`)
+        load()
+      }
     } catch (error) {
       notify((error as Error).message)
     } finally {

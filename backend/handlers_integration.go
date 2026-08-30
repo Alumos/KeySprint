@@ -127,6 +127,7 @@ func (a *app) updateIntegrationConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	a.configMu.Lock()
 	a.classSource, a.classSystemURL, a.classSystemPath, a.classSystemToken, a.classSystemTimeout = in.Source, in.URL, in.Path, in.Token, timeout
+	a.classSystemETags = map[string]string{}
 	a.configMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }

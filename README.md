@@ -67,7 +67,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.1.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.2.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ### ClassOrbit 8080 + KeySprint 8081
 
@@ -102,7 +102,7 @@ docker compose -f compose.vps.yaml up -d
 docker compose -f compose.vps.yaml ps
 ```
 
-访问 `http://VPS_IP:8081`。该 Compose 已加入 Linux Docker 所需的 `host-gateway` 映射，KeySprint 容器会通过 `http://host.docker.internal:8080` 访问 ClassOrbit；不要填写 `http://127.0.0.1:8080`，容器内的回环地址指向 KeySprint 自己。
+访问 `http://VPS_IP:8081`。VPS 配置默认通过 `ghcr.milu.moe` 加速拉取 GHCR 镜像，并加入 Linux Docker 所需的 `host-gateway` 映射。KeySprint 容器会通过 `http://host.docker.internal:8080` 访问 ClassOrbit；不要填写 `http://127.0.0.1:8080`，容器内的回环地址指向 KeySprint 自己。
 
 ## ✦ 自动构建
 
@@ -121,7 +121,7 @@ docker compose -f compose.vps.yaml ps
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v1.1.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v1.2.0`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；
@@ -170,9 +170,9 @@ Excel 导入始终保留为课堂兜底。每个班级都会标记实际来源�
 | 共享 Bearer 密钥 | 与 ClassOrbit 的 `CLASS_SYSTEM_TOKEN` 完全一致 |
 | 请求超时 | `8s` |
 
-保存后立即生效，并持久化到 KeySprint 数据库；此后数据库中的可视化配置优先于容器环境变量。接口同步是教师主动触发，不是定时任务。
+点击“保存并测试连接”后，配置会立即持久化到 KeySprint 数据库，并用当前管理员用户名只读检查 ClassOrbit 名单；此后数据库中的可视化配置优先于容器环境变量。接口同步是教师主动触发，不是定时任务。
 
-同步只携带教师用户名与独立 Bearer 密钥，不会转发教师密码或 KeySprint 登录令牌。KeySprint 教师的登录用户名必须与 ClassOrbit 教师用户名一致，否则 ClassOrbit 会返回“教师账号不存在”。班级 ID 应保持稳定；远端改名会更新原班级，远端删除会将对应接口班级停用，已有成绩仍保持正确关联。
+同步只携带教师用户名与独立 Bearer 密钥，不会转发教师密码或 KeySprint 登录令牌。KeySprint 教师的登录用户名必须与 ClassOrbit 教师用户名一致，否则页面会直接显示 ClassOrbit 的具体错误。双方使用稳定班级 ID 保持改名后的历史关联，并通过 ETag 跳过没有变化的重复写入；远端删除会将对应接口班级停用，已有成绩仍保持正确关联。
 
 ## ✦ 本地开发
 

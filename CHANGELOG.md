@@ -8,6 +8,19 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [1.2.0] - 2026-08-30
+
+### Added
+
+- 名单来源后台新增“保存并测试连接”，可在写入配置后只读验证班级数与学生数。
+- ClassOrbit 条件同步支持 ETag，远端名单未变化时跳过 SQLite 重复写入。
+
+### Changed
+
+- 完整显示 ClassOrbit 返回的鉴权、教师用户名等具体错误，减少联调排查成本。
+- 使用 ClassOrbit 稳定班级 ID 处理改名，即使学生名单全部变化也能保持历史成绩关联。
+- 同机 VPS 配置默认使用 `ghcr.milu.moe` 加速拉取镜像。
+
 ## [1.1.0] - 2026-08-30
 
 ### Added
@@ -38,6 +51,7 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.0.0

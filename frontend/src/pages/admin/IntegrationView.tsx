@@ -11,6 +11,8 @@ type Config = {
   timeout: string
 }
 
+type ConnectionResult = { class_count: number; student_count: number }
+
 export default function IntegrationView({ notify }: { notify: (message: string) => void }) {
   const [config, setConfig] = useState<Config>({
     source: 'manual',
@@ -30,11 +32,19 @@ export default function IntegrationView({ notify }: { notify: (message: string) 
 
   async function save() {
     setBusy(true)
+    let saved = false
     try {
       await api('/api/integration/class-system', json('PUT', config))
-      notify('班级名单来源配置已保存')
+      saved = true
+      if (config.source === 'classorbit') {
+        const result = await api<ConnectionResult>('/api/integration/class-system/test', { method: 'POST' })
+        notify(`配置已保存，连接成功：${result.class_count} 个班级、${result.student_count} 名学生`)
+      } else {
+        notify('班级名单来源配置已保存')
+      }
     } catch (error) {
-      notify((error as Error).message)
+      const message = (error as Error).message
+      notify(saved ? `配置已保存，但连接测试失败：${message}` : message)
     } finally {
       setBusy(false)
     }
@@ -66,7 +76,7 @@ export default function IntegrationView({ notify }: { notify: (message: string) 
         <Input type="password" value={config.token} onChange={event => set('token', event.target.value)} placeholder="CLASS_SYSTEM_TOKEN" autoComplete="new-password" />
       </Field>
       <Field label="请求超时"><Input value={config.timeout} onChange={event => set('timeout', event.target.value)} placeholder="8s" /></Field>
-      <div><Button onClick={save} disabled={busy}><Save size={14} />{busy ? '正在保存...' : '保存配置'}</Button></div>
+      <div><Button onClick={save} disabled={busy}><Save size={14} />{busy ? '正在保存并检查...' : remote ? '保存并测试连接' : '保存配置'}</Button></div>
     </div>
   </Panel></div>
 }

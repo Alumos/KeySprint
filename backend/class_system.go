@@ -35,6 +35,12 @@ type remoteClassesResponse struct {
 	Classes []remoteClass `json:"classes"`
 }
 
+type remoteClassSnapshot struct {
+	Classes     []remoteClass
+	ETag        string
+	NotModified bool
+}
+
 type classAPIItem struct {
 	ID           int64  `json:"id"`
 	Name         string `json:"name"`
@@ -79,27 +85,64 @@ func (a *app) syncClasses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "教师账号不存在")
 		return
 	}
-	classes, err := a.fetchRemoteClasses(r, username)
+	snapshot, err := a.fetchRemoteClasses(r, username, true)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	classCount, studentCount, err := a.replaceSyncedClasses(r, u.ID, classes)
+	if snapshot.NotModified {
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "unchanged": true})
+		return
+	}
+	classCount, studentCount, err := a.replaceSyncedClasses(r, u.ID, snapshot.Classes)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "同步班级名单失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "class_count": classCount, "student_count": studentCount})
+	a.rememberClassSystemETag(username, snapshot.ETag)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "unchanged": false, "class_count": classCount, "student_count": studentCount})
 }
 
-func (a *app) fetchRemoteClasses(r *http.Request, username string) ([]remoteClass, error) {
+func (a *app) testClassSystem(w http.ResponseWriter, r *http.Request) {
+	if !mustAdmin(w, r) {
+		return
+	}
+	a.configMu.RLock()
+	configured := a.classSystemURL != "" && a.classSystemToken != ""
+	a.configMu.RUnlock()
+	if !configured {
+		writeError(w, http.StatusServiceUnavailable, "尚未完整配置 ClassOrbit 接口")
+		return
+	}
+	var username string
+	if err := a.db.QueryRowContext(r.Context(), "SELECT username FROM teachers WHERE id=?", currentUser(r).ID).Scan(&username); err != nil {
+		writeError(w, http.StatusUnauthorized, "教师账号不存在")
+		return
+	}
+	snapshot, err := a.fetchRemoteClasses(r, username, false)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	studentCount := 0
+	for _, class := range snapshot.Classes {
+		studentCount += len(class.Students)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "class_count": len(snapshot.Classes), "student_count": studentCount})
+}
+
+func (a *app) fetchRemoteClasses(r *http.Request, username string, conditional bool) (remoteClassSnapshot, error) {
 	a.configMu.RLock()
 	baseURL, path, sharedToken, timeout := a.classSystemURL, a.classSystemPath, a.classSystemToken, a.classSystemTimeout
+	cachedETag := ""
+	if conditional {
+		cachedETag = a.classSystemETags[strings.ToLower(strings.TrimSpace(username))]
+	}
 	a.configMu.RUnlock()
 	endpoint := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("ClassOrbit 地址无效")
+		return remoteClassSnapshot{}, fmt.Errorf("ClassOrbit 地址无效")
 	}
 	q := u.Query()
 	q.Set("teacher_username", username)
@@ -112,34 +155,73 @@ func (a *app) fetchRemoteClasses(r *http.Request, username string) ([]remoteClas
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("无法创建 ClassOrbit 请求")
+		return remoteClassSnapshot{}, fmt.Errorf("无法创建 ClassOrbit 请求")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Teacher-Username", username)
 	if sharedToken != "" {
 		req.Header.Set("Authorization", "Bearer "+sharedToken)
 	}
+	if cachedETag != "" {
+		req.Header.Set("If-None-Match", cachedETag)
+	}
 	res, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ClassOrbit 连接失败")
+		return remoteClassSnapshot{}, fmt.Errorf("ClassOrbit 连接失败")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotModified && cachedETag != "" {
+		return remoteClassSnapshot{NotModified: true, ETag: cachedETag}, nil
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("ClassOrbit 返回错误 (%d)", res.StatusCode)
+		return remoteClassSnapshot{}, classSystemResponseError(res)
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if err != nil {
-		return nil, fmt.Errorf("读取 ClassOrbit 响应失败")
+		return remoteClassSnapshot{}, fmt.Errorf("读取 ClassOrbit 响应失败")
 	}
 	var envelope remoteClassesResponse
 	if len(strings.TrimSpace(string(body))) > 0 && strings.HasPrefix(strings.TrimSpace(string(body)), "[") {
 		if err := json.Unmarshal(body, &envelope.Classes); err != nil {
-			return nil, fmt.Errorf("ClassOrbit 响应格式错误")
+			return remoteClassSnapshot{}, fmt.Errorf("ClassOrbit 响应格式错误")
 		}
 	} else if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, fmt.Errorf("ClassOrbit 响应格式错误")
+		return remoteClassSnapshot{}, fmt.Errorf("ClassOrbit 响应格式错误")
 	}
-	return envelope.Classes, nil
+	return remoteClassSnapshot{Classes: envelope.Classes, ETag: strings.TrimSpace(res.Header.Get("ETag"))}, nil
+}
+
+func classSystemResponseError(res *http.Response) error {
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) == nil {
+		message := strings.TrimSpace(payload.Error)
+		if message != "" {
+			return fmt.Errorf("ClassOrbit：%s (%d)", message, res.StatusCode)
+		}
+	}
+	return fmt.Errorf("ClassOrbit 返回错误 (%d)", res.StatusCode)
+}
+
+func (a *app) rememberClassSystemETag(username, etag string) {
+	etag = strings.TrimSpace(etag)
+	if etag == "" {
+		return
+	}
+	a.configMu.Lock()
+	if a.classSystemETags == nil {
+		a.classSystemETags = map[string]string{}
+	}
+	a.classSystemETags[strings.ToLower(strings.TrimSpace(username))] = etag
+	a.configMu.Unlock()
+}
+
+func (a *app) clearClassSystemETags() {
+	a.configMu.Lock()
+	a.classSystemETags = map[string]string{}
+	a.configMu.Unlock()
 }
 
 func (a *app) replaceSyncedClasses(r *http.Request, teacherID int64, classes []remoteClass) (int, int, error) {

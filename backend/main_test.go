@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func testApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", timers: map[int64]*time.Timer{}}
+	return &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", classSystemETags: map[string]string{}, timers: map[int64]*time.Timer{}}
 }
 
 func request(t *testing.T, h http.Handler, method, path, body, token string) (int, map[string]any) {
@@ -94,15 +95,22 @@ func TestSyncClassesFromClassSystem(t *testing.T) {
 		t.Fatalf("login: %d", status)
 	}
 	token, _ := out["token"].(string)
+	var remoteRequests atomic.Int32
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remoteRequests.Add(1)
 		if r.URL.Query().Get("teacher_username") != "teacher" || r.Header.Get("X-Teacher-Username") != "teacher" {
 			t.Errorf("teacher identity was not forwarded")
 		}
 		if r.Header.Get("Authorization") != "Bearer test-shared-token" {
 			t.Errorf("shared token was not forwarded")
 		}
+		if r.Header.Get("If-None-Match") == `"roster-1"` {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"classes":[{"name":"一班","students":[{"id":"001","name":"张三"},{"studentId":"002","studentName":"李四"}]}]}`))
+		w.Header().Set("ETag", `"roster-1"`)
+		_, _ = w.Write([]byte(`{"classes":[{"id":"class-1","name":"一班","students":[{"id":"001","name":"张三"},{"studentId":"002","studentName":"李四"}]}]}`))
 	}))
 	defer remote.Close()
 	a.classSource = "classorbit"
@@ -110,16 +118,55 @@ func TestSyncClassesFromClassSystem(t *testing.T) {
 	a.classSystemPath = "/api/integration/classes"
 	a.classSystemToken = "test-shared-token"
 	a.classSystemTimeout = time.Second
+	status, out = request(t, a.routes(), "POST", "/api/integration/class-system/test", "", token)
+	if status != http.StatusOK || out["class_count"] != float64(1) || out["student_count"] != float64(2) {
+		t.Fatalf("connection test: %d %v", status, out)
+	}
 	status, out = request(t, a.routes(), "POST", "/api/classes/sync", "", token)
 	if status != 200 || out["student_count"] != float64(2) {
 		t.Fatalf("sync: %d %v", status, out)
 	}
 	var classes, students, remoteClasses int
+	var remoteID string
 	_ = a.db.QueryRow("SELECT COUNT(*) FROM classes").Scan(&classes)
 	_ = a.db.QueryRow("SELECT COUNT(*) FROM class_students").Scan(&students)
 	_ = a.db.QueryRow("SELECT COUNT(*) FROM classes WHERE source='classorbit'").Scan(&remoteClasses)
-	if classes != 1 || students != 2 || remoteClasses != 1 {
-		t.Fatalf("unexpected synced data: classes=%d students=%d remote=%d", classes, students, remoteClasses)
+	_ = a.db.QueryRow("SELECT remote_id FROM classes WHERE source='classorbit'").Scan(&remoteID)
+	if classes != 1 || students != 2 || remoteClasses != 1 || remoteID != "class-1" {
+		t.Fatalf("unexpected synced data: classes=%d students=%d remote=%d remote_id=%q", classes, students, remoteClasses, remoteID)
+	}
+	status, out = request(t, a.routes(), "POST", "/api/classes/sync", "", token)
+	if status != http.StatusOK || out["unchanged"] != true {
+		t.Fatalf("conditional sync: %d %v", status, out)
+	}
+	if remoteRequests.Load() != 3 {
+		t.Fatalf("remote requests=%d, want 3", remoteRequests.Load())
+	}
+}
+
+func TestClassOrbitErrorDetailsAreForwarded(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	if status, _ := request(t, h, "POST", "/api/setup/init", `{"teacherUsername":"teacher","teacherPassword":"secret1"}`, ""); status != http.StatusOK {
+		t.Fatalf("setup status=%d", status)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"教师账号不存在"}`))
+	}))
+	defer remote.Close()
+	a.classSource = "classorbit"
+	a.classSystemURL = remote.URL
+	a.classSystemPath = "/api/integration/classes"
+	a.classSystemToken = "test-token"
+	a.classSystemTimeout = time.Second
+	status, out := request(t, h, "POST", "/api/integration/class-system/test", "", token)
+	message, _ := out["error"].(string)
+	if status != http.StatusBadGateway || !strings.Contains(message, "教师账号不存在") {
+		t.Fatalf("remote error: %d %v", status, out)
 	}
 }
 
@@ -203,7 +250,7 @@ func TestSyncRenameKeepsClassAndResultAssociation(t *testing.T) {
 		t.Fatalf("setup status=%d", status)
 	}
 	r := httptest.NewRequest(http.MethodPost, "/api/classes/sync", nil)
-	if _, _, err := a.replaceSyncedClasses(r, 1, []remoteClass{{Name: "四 1 班", Students: []remoteStudent{{ID: "001", Name: "张三"}}}}); err != nil {
+	if _, _, err := a.replaceSyncedClasses(r, 1, []remoteClass{{ID: "stable-1", Name: "四 1 班", Students: []remoteStudent{{ID: "001", Name: "张三"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	var classID int64
@@ -217,7 +264,7 @@ func TestSyncRenameKeepsClassAndResultAssociation(t *testing.T) {
 	if _, err := a.db.Exec("INSERT INTO results(competition_id,student_id,student_name,class_id,total_count) VALUES(1,'001','张三',?,1)", classID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := a.replaceSyncedClasses(r, 1, []remoteClass{{Name: "五 1 班", Students: []remoteStudent{{ID: "001", Name: "张三"}}}}); err != nil {
+	if _, _, err := a.replaceSyncedClasses(r, 1, []remoteClass{{ID: "stable-1", Name: "五 1 班", Students: []remoteStudent{{ID: "999", Name: "新同学"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	var renamed string
