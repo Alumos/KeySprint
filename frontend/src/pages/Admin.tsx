@@ -16,7 +16,7 @@ const ResultsView = lazy(() => import('./admin/ResultsView'))
 const TeachersView = lazy(() => import('./admin/TeachersView'))
 
 type Section='articles'|'classes'|'competitions'|'results'|'teachers'|'integration'
-const items=[{id:'articles' as Section,label:'文章管理',icon:BookOpen},{id:'classes' as Section,label:'班级管理',icon:GraduationCap},{id:'competitions' as Section,label:'竞赛控制',icon:Trophy},{id:'results' as Section,label:'成绩分析',icon:BarChart3},{id:'teachers' as Section,label:'教师管理',icon:UserCog},{id:'integration' as Section,label:'积分系统配置',icon:Settings}]
+const items=[{id:'articles' as Section,label:'文章管理',icon:BookOpen},{id:'classes' as Section,label:'班级管理',icon:GraduationCap},{id:'competitions' as Section,label:'竞赛控制',icon:Trophy},{id:'results' as Section,label:'成绩分析',icon:BarChart3},{id:'teachers' as Section,label:'教师管理',icon:UserCog},{id:'integration' as Section,label:'名单来源配置',icon:Settings}]
 
 export default function Admin(){
   const nav=useNavigate();const[section,setSection]=useState<Section>('articles');const[mobile,setMobile]=useState(false);const[session,setSession]=useState<any>(null);const[toast,setToast]=useState('');const[passwordOpen,setPasswordOpen]=useState(false);const[oldPassword,setOld]=useState('');const[newPassword,setNew]=useState('');const[error,setError]=useState('')

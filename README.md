@@ -67,7 +67,42 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.0.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.1.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+
+### ClassOrbit 8080 + KeySprint 8081
+
+ClassOrbit 已在同一台 VPS 的宿主机 `8080` 端口运行时，直接使用仓库中的 [`compose.vps.yaml`](compose.vps.yaml)：
+
+```bash
+mkdir -p /opt/keysprint
+cd /opt/keysprint
+curl -fsSLO https://raw.githubusercontent.com/Alumos/KeySprint/main/compose.vps.yaml
+curl -fsSL https://raw.githubusercontent.com/Alumos/KeySprint/main/.env.vps.example -o .env
+```
+
+编辑 `.env`，替换两项密钥：
+
+```dotenv
+JWT_SECRET=使用-openssl-rand-hex-32-生成
+CLASS_SYSTEM_TOKEN=与-ClassOrbit-完全相同的共享密钥
+```
+
+确认 ClassOrbit 自己的部署配置包含相同密钥并监听宿主机 `8080`：
+
+```dotenv
+APP_PORT=8080
+CLASS_SYSTEM_TOKEN=与-KeySprint-完全相同的共享密钥
+```
+
+然后启动 KeySprint：
+
+```bash
+docker compose -f compose.vps.yaml pull
+docker compose -f compose.vps.yaml up -d
+docker compose -f compose.vps.yaml ps
+```
+
+访问 `http://VPS_IP:8081`。该 Compose 已加入 Linux Docker 所需的 `host-gateway` 映射，KeySprint 容器会通过 `http://host.docker.internal:8080` 访问 ClassOrbit；不要填写 `http://127.0.0.1:8080`，容器内的回环地址指向 KeySprint 自己。
 
 ## ✦ 自动构建
 
@@ -86,7 +121,7 @@ docker compose -f compose.deploy.yaml logs -f keysprint
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v1.0.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v1.1.0`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；
@@ -110,16 +145,34 @@ make version
 | `PORT` | `8080` | 对外端口 |
 | `TZ` | `Asia/Shanghai` | 服务时区 |
 | `JWT_SECRET` | 无 | 必须设置的登录签名密钥 |
+| `CLASS_SOURCE` | `manual` | 名单主要来源：`manual` 或 `classorbit` |
 | `CLASS_SYSTEM_URL` | 空 | ClassOrbit 服务地址 |
 | `CLASS_SYSTEM_PATH` | `/api/integration/classes` | 班级同步接口 |
-| `CLASS_SYSTEM_TOKEN` | 空 | 可选的共享 Bearer 密钥 |
+| `CLASS_SYSTEM_TOKEN` | 空 | 与 ClassOrbit 完全一致的共享 Bearer 密钥 |
 | `CLASS_SYSTEM_TIMEOUT` | `8s` | 外部请求超时 |
 
 ## ✦ ClassOrbit 同步
 
-KeySprint 可以从 [ClassOrbit](https://github.com/Alumos/ClassOrbit) 获取当前教师管理的班级和学生名单。管理员在“积分系统配置”中填写地址和共享密钥后即可同步。
+KeySprint 的班级名单支持两种来源：
 
-同步只携带教师用户名与独立 Bearer 密钥，不会转发教师密码或 KeySprint 登录令牌。班级 ID 应保持稳定；远端改名会更新原班级，删除会将班级停用，已有成绩仍保持正确关联。
+- `Excel 手工导入`：默认模式，教师上传 `.xlsx`/`.xls` 名单；
+- `ClassOrbit 接口`：教师在班级管理中点击同步，从 ClassOrbit 获取自己管理的班级和学生。
+
+Excel 导入始终保留为课堂兜底。每个班级都会标记实际来源，ClassOrbit 同步只更新或停用接口班级，不会清空手工班级，也不会删除已有比赛成绩。
+
+管理员登录 KeySprint 后，进入 `名单来源配置`，填写：
+
+| 后台字段 | 同机 VPS 配置值 |
+| --- | --- |
+| 主要来源 | `ClassOrbit 接口` |
+| ClassOrbit 服务地址 | `http://host.docker.internal:8080` |
+| 班级接口路径 | `/api/integration/classes` |
+| 共享 Bearer 密钥 | 与 ClassOrbit 的 `CLASS_SYSTEM_TOKEN` 完全一致 |
+| 请求超时 | `8s` |
+
+保存后立即生效，并持久化到 KeySprint 数据库；此后数据库中的可视化配置优先于容器环境变量。接口同步是教师主动触发，不是定时任务。
+
+同步只携带教师用户名与独立 Bearer 密钥，不会转发教师密码或 KeySprint 登录令牌。KeySprint 教师的登录用户名必须与 ClassOrbit 教师用户名一致，否则 ClassOrbit 会返回“教师账号不存在”。班级 ID 应保持稳定；远端改名会更新原班级，远端删除会将对应接口班级停用，已有成绩仍保持正确关联。
 
 ## ✦ 本地开发
 

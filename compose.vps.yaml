@@ -1,0 +1,32 @@
+name: keysprint
+
+services:
+  keysprint:
+    image: "${KEYSPRINT_IMAGE:-ghcr.io/alumos/keysprint}:${KEYSPRINT_TAG:-1.1.0}"
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${KEYSPRINT_PORT:-8081}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
+      JWT_SECRET: "${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}"
+      CLASS_SOURCE: "${CLASS_SOURCE:-classorbit}"
+      CLASS_SYSTEM_URL: "${CLASS_SYSTEM_URL:-http://host.docker.internal:8080}"
+      CLASS_SYSTEM_PATH: "${CLASS_SYSTEM_PATH:-/api/integration/classes}"
+      CLASS_SYSTEM_TOKEN: "${CLASS_SYSTEM_TOKEN:?请填写与 ClassOrbit 完全一致的共享密钥}"
+      CLASS_SYSTEM_TIMEOUT: "${CLASS_SYSTEM_TIMEOUT:-8s}"
+    volumes:
+      - keysprint_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  keysprint_data:
+    name: "${DATA_VOLUME_NAME:-keysprint_data}"

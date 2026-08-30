@@ -18,7 +18,7 @@ func (a *app) publicClasses(w http.ResponseWriter, r *http.Request) {
 	a.classesForTeacher(w, pathInt(r, "teacherId"))
 }
 func (a *app) classesForTeacher(w http.ResponseWriter, teacher int64) {
-	rows, err := a.db.Query(`SELECT c.id,c.name,c.created_at,COUNT(s.id) FROM classes c LEFT JOIN class_students s ON s.class_id=c.id WHERE c.teacher_id=? AND c.active=1 GROUP BY c.id ORDER BY c.created_at DESC`, teacher)
+	rows, err := a.db.Query(`SELECT c.id,c.name,c.source,c.created_at,COUNT(s.id) FROM classes c LEFT JOIN class_students s ON s.class_id=c.id WHERE c.teacher_id=? AND c.active=1 GROUP BY c.id ORDER BY c.created_at DESC`, teacher)
 	if err != nil {
 		writeError(w, 500, "读取班级失败")
 		return
@@ -27,9 +27,9 @@ func (a *app) classesForTeacher(w http.ResponseWriter, teacher int64) {
 	out := make([]classAPIItem, 0)
 	for rows.Next() {
 		var id, count int64
-		var name, created string
-		_ = rows.Scan(&id, &name, &created, &count)
-		out = append(out, classAPIItem{ID: id, Name: name, CreatedAt: created, StudentCount: count})
+		var name, source, created string
+		_ = rows.Scan(&id, &name, &source, &created, &count)
+		out = append(out, classAPIItem{ID: id, Name: name, Source: source, CreatedAt: created, StudentCount: count})
 	}
 	writeJSON(w, 200, out)
 }

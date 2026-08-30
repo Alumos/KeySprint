@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS classes (
   teacher_id INTEGER NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   remote_id TEXT,
+  source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','classorbit')),
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

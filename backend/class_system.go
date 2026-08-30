@@ -38,6 +38,7 @@ type remoteClassesResponse struct {
 type classAPIItem struct {
 	ID           int64  `json:"id"`
 	Name         string `json:"name"`
+	Source       string `json:"source"`
 	CreatedAt    string `json:"created_at"`
 	StudentCount int64  `json:"student_count"`
 }
@@ -50,18 +51,26 @@ type studentAPIItem struct {
 func (a *app) classSystemStatus(w http.ResponseWriter, r *http.Request) {
 	a.configMu.RLock()
 	defer a.configMu.RUnlock()
+	configured := a.classSystemURL != "" && a.classSystemToken != ""
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": a.classSystemURL != "",
-		"path":       a.classSystemPath,
+		"configured":   configured,
+		"source":       a.classSource,
+		"sync_enabled": a.classSource == "classorbit" && configured,
+		"path":         a.classSystemPath,
 	})
 }
 
 func (a *app) syncClasses(w http.ResponseWriter, r *http.Request) {
 	a.configMu.RLock()
-	configured := a.classSystemURL != ""
+	source := a.classSource
+	configured := a.classSystemURL != "" && a.classSystemToken != ""
 	a.configMu.RUnlock()
+	if source != "classorbit" {
+		writeError(w, http.StatusConflict, "当前班级名单来源为 Excel 手工导入")
+		return
+	}
 	if !configured {
-		writeError(w, http.StatusServiceUnavailable, "尚未配置班级积分系统接口")
+		writeError(w, http.StatusServiceUnavailable, "尚未完整配置 ClassOrbit 接口")
 		return
 	}
 	u := currentUser(r)
@@ -90,7 +99,7 @@ func (a *app) fetchRemoteClasses(r *http.Request, username string) ([]remoteClas
 	endpoint := strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(path, "/")
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("班级积分系统地址无效")
+		return nil, fmt.Errorf("ClassOrbit 地址无效")
 	}
 	q := u.Query()
 	q.Set("teacher_username", username)
@@ -103,7 +112,7 @@ func (a *app) fetchRemoteClasses(r *http.Request, username string) ([]remoteClas
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("无法创建班级积分系统请求")
+		return nil, fmt.Errorf("无法创建 ClassOrbit 请求")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("X-Teacher-Username", username)
@@ -112,23 +121,23 @@ func (a *app) fetchRemoteClasses(r *http.Request, username string) ([]remoteClas
 	}
 	res, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("班级积分系统连接失败")
+		return nil, fmt.Errorf("ClassOrbit 连接失败")
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("班级积分系统返回错误 (%d)", res.StatusCode)
+		return nil, fmt.Errorf("ClassOrbit 返回错误 (%d)", res.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if err != nil {
-		return nil, fmt.Errorf("读取班级积分系统响应失败")
+		return nil, fmt.Errorf("读取 ClassOrbit 响应失败")
 	}
 	var envelope remoteClassesResponse
 	if len(strings.TrimSpace(string(body))) > 0 && strings.HasPrefix(strings.TrimSpace(string(body)), "[") {
 		if err := json.Unmarshal(body, &envelope.Classes); err != nil {
-			return nil, fmt.Errorf("班级积分系统响应格式错误")
+			return nil, fmt.Errorf("ClassOrbit 响应格式错误")
 		}
 	} else if err := json.Unmarshal(body, &envelope); err != nil {
-		return nil, fmt.Errorf("班级积分系统响应格式错误")
+		return nil, fmt.Errorf("ClassOrbit 响应格式错误")
 	}
 	return envelope.Classes, nil
 }
@@ -153,12 +162,12 @@ func (a *app) replaceSyncedClasses(r *http.Request, teacherID int64, classes []r
 		return 0, 0, err
 	}
 	defer findNamedClass.Close()
-	insertClass, err := tx.PrepareContext(ctx, "INSERT INTO classes(teacher_id,name,remote_id,active) VALUES(?,?,?,1)")
+	insertClass, err := tx.PrepareContext(ctx, "INSERT INTO classes(teacher_id,name,remote_id,source,active) VALUES(?,?,?,'classorbit',1)")
 	if err != nil {
 		return 0, 0, err
 	}
 	defer insertClass.Close()
-	updateClass, err := tx.PrepareContext(ctx, "UPDATE classes SET name=?,remote_id=?,active=1 WHERE id=? AND teacher_id=?")
+	updateClass, err := tx.PrepareContext(ctx, "UPDATE classes SET name=?,remote_id=?,source='classorbit',active=1 WHERE id=? AND teacher_id=?")
 	if err != nil {
 		return 0, 0, err
 	}
@@ -176,7 +185,7 @@ func (a *app) replaceSyncedClasses(r *http.Request, teacherID int64, classes []r
 	classCount, studentCount := 0, 0
 	// A sync is authoritative: classes absent from the remote response become
 	// inactive, so renamed/deleted classes cannot remain selectable locally.
-	if _, err = tx.Exec("UPDATE classes SET active=0 WHERE teacher_id=?", teacherID); err != nil {
+	if _, err = tx.Exec("UPDATE classes SET active=0 WHERE teacher_id=? AND source='classorbit'", teacherID); err != nil {
 		return 0, 0, err
 	}
 	seenClasses := make(map[string]struct{}, len(classes))
@@ -254,7 +263,7 @@ func (a *app) replaceSyncedClasses(r *http.Request, teacherID int64, classes []r
 		}
 		classCount++
 	}
-	if _, err = tx.Exec("DELETE FROM class_students WHERE class_id IN (SELECT id FROM classes WHERE teacher_id=? AND active=0)", teacherID); err != nil {
+	if _, err = tx.Exec("DELETE FROM class_students WHERE class_id IN (SELECT id FROM classes WHERE teacher_id=? AND source='classorbit' AND active=0)", teacherID); err != nil {
 		return 0, 0, err
 	}
 	if err = tx.Commit(); err != nil {

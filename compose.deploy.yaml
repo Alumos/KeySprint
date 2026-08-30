@@ -8,6 +8,7 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}
+      CLASS_SOURCE: ${CLASS_SOURCE:-manual}
       CLASS_SYSTEM_URL: ${CLASS_SYSTEM_URL:-}
       CLASS_SYSTEM_PATH: ${CLASS_SYSTEM_PATH:-/api/integration/classes}
       CLASS_SYSTEM_TOKEN: ${CLASS_SYSTEM_TOKEN:-}

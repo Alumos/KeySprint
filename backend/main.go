@@ -32,6 +32,7 @@ type app struct {
 	classSystemPath    string
 	classSystemToken   string
 	classSystemTimeout time.Duration
+	classSource        string
 	configMu           sync.RWMutex
 	timerMu            sync.Mutex
 	timers             map[int64]*time.Timer
@@ -82,6 +83,7 @@ func main() {
 		classSystemPath:    getenv("CLASS_SYSTEM_PATH", "/api/integration/classes"),
 		classSystemToken:   os.Getenv("CLASS_SYSTEM_TOKEN"),
 		classSystemTimeout: timeout,
+		classSource:        normalizeClassSource(getenv("CLASS_SOURCE", "manual")),
 		timers:             map[int64]*time.Timer{},
 	}
 	_ = a.loadIntegrationConfig()
@@ -106,7 +108,9 @@ func migrateSchema(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN pinyin_enabled INTEGER NOT NULL DEFAULT 1`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN remote_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN active INTEGER NOT NULL DEFAULT 1`)
+	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','classorbit'))`)
 	_, _ = db.Exec(`ALTER TABLE results ADD COLUMN class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL`)
+	_, _ = db.Exec(`UPDATE classes SET source='classorbit' WHERE remote_id IS NOT NULL`)
 	// Backfill legacy results only when student ID + name identifies one class.
 	// Ambiguous historical records stay unassigned instead of being attributed
 	// to the wrong class.

@@ -8,6 +8,19 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [1.1.0] - 2026-08-30
+
+### Added
+
+- 管理后台新增班级名单来源配置，可在 Excel 手工导入与 ClassOrbit 接口之间切换。
+- 班级记录各自的名单来源，接口班级与手工班级可以同时保留并清晰区分。
+- 新增同机 VPS 部署配置，默认连接宿主机 `8080` 端口的 ClassOrbit，并将 KeySprint 发布到 `8081`。
+
+### Changed
+
+- ClassOrbit 同步仅停用远端已删除的接口班级，不再影响 Excel 手工导入的兜底班级。
+- ClassOrbit 模式要求有效的 HTTP(S) 服务地址与共享 Bearer 密钥，错误配置会在保存时直接提示。
+
 ## [1.0.0] - 2026-08-30
 
 ### Added
@@ -25,5 +38,6 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.0.0
