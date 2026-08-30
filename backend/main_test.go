@@ -46,6 +46,13 @@ func request(t *testing.T, h http.Handler, method, path, body, token string) (in
 	return w.Code, out
 }
 
+func TestHealth(t *testing.T) {
+	status, out := request(t, testApp(t).routes(), "GET", "/api/health", "", "")
+	if status != http.StatusOK || out["status"] != "ok" {
+		t.Fatalf("health: %d %v", status, out)
+	}
+}
+
 func TestSetupLoginAndArticle(t *testing.T) {
 	a := testApp(t)
 	h := a.routes()

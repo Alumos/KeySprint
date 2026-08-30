@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	_ "embed"
 	"errors"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -13,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	_ "modernc.org/sqlite"
 )
@@ -35,6 +34,18 @@ type app struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
+		res, err := (&http.Client{Timeout: 3 * time.Second}).Get(getenv("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/health"))
+		if err != nil {
+			os.Exit(1)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		return
+	}
+
 	dbPath := getenv("DB_PATH", "./data/keysprint.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		log.Fatal(err)
@@ -137,7 +148,13 @@ func migrateSchema(db *sql.DB) error {
 
 func (a *app) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]any{"status": "ok"}) })
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := a.db.PingContext(r.Context()); err != nil {
+			writeError(w, http.StatusServiceUnavailable, "数据库不可用")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	})
 	mux.HandleFunc("GET /api/setup/status", a.setupStatus)
 	mux.HandleFunc("POST /api/setup/init", a.setupInit)
 	mux.HandleFunc("POST /api/admin/login", a.login)
@@ -162,7 +179,6 @@ func (a *app) routes() http.Handler {
 	secured.HandleFunc("POST /api/articles", a.createArticle)
 	secured.HandleFunc("PUT /api/articles/{id}", a.updateArticle)
 	secured.HandleFunc("DELETE /api/articles/{id}", a.deleteArticle)
-	secured.HandleFunc("GET /api/articles/selected", a.getSelectedArticles)
 	secured.HandleFunc("GET /api/library", a.getLibrary)
 	secured.HandleFunc("POST /api/library/pick", a.pickArticle)
 	secured.HandleFunc("GET /api/competitions", a.getCompetitions)
@@ -262,6 +278,3 @@ func (a *app) cancelStop(id int64) {
 		delete(a.timers, id)
 	}
 }
-
-var _ fs.FileInfo
-var _ = context.Background
