@@ -1,0 +1,12 @@
+.git
+.agents
+.codex
+**/node_modules
+frontend/dist
+backend/data
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+*.log
+.DS_Store

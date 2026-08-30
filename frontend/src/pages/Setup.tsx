@@ -1,0 +1,11 @@
+import { CheckCircle2, Database, Keyboard } from 'lucide-react'
+import { FormEvent, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Button, Field, Input } from '../components/ui'
+import { api, json } from '../lib/api'
+
+export default function Setup(){const nav=useNavigate();const[done,setDone]=useState(false);const[username,setUsername]=useState('');const[password,setPassword]=useState('');const[name,setName]=useState('');const[error,setError]=useState('');const[busy,setBusy]=useState(false)
+  useEffect(()=>{api<{done:boolean}>('/api/setup/status').then(x=>{if(x.done)nav('/admin',{replace:true})})},[nav])
+  async function submit(e:FormEvent){e.preventDefault();setError('');setBusy(true);try{await api('/api/setup/init',json('POST',{teacherUsername:username,teacherPassword:password,teacherDisplayName:name,dbType:'sqlite'}));setDone(true)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+  if(done)return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><div className="brand-mark"><CheckCircle2 size={18}/></div><h1>初始化完成</h1><p>管理员账号已经创建，可以开始配置竞赛。</p></div><div className="auth-form"><Button onClick={()=>nav('/admin')}>进入教师控制台</Button></div></section></main>
+  return <main className="auth-shell"><section className="auth-card"><div className="auth-brand"><div className="brand-mark"><Keyboard size={18}/></div><h1>初始化 KeySprint</h1><p>创建第一个系统管理员账号</p></div><div style={{padding:'16px 24px',borderBottom:'1px solid #e4e4e7',display:'flex',gap:10,alignItems:'center',fontSize:12}}><Database size={16}/><div><strong>SQLite 数据库</strong><div className="muted" style={{marginTop:2}}>数据保存在服务器挂载的 /data 目录</div></div></div><form className="auth-form" onSubmit={submit}><Field label="管理员用户名"><Input value={username} onChange={e=>setUsername(e.target.value)} autoFocus/></Field><Field label="密码" hint="至少 6 位"><Input value={password} onChange={e=>setPassword(e.target.value)} type="password"/></Field><Field label="显示名称" hint="例如：张老师"><Input value={name} onChange={e=>setName(e.target.value)}/></Field>{error&&<div className="notice notice-error">{error}</div>}<Button disabled={busy||username.length<2||password.length<6}>{busy?'正在初始化...':'完成初始化'}</Button></form></section></main>}

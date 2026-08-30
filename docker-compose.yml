@@ -1,0 +1,31 @@
+services:
+  keysprint:
+    build:
+      context: .
+      args:
+        # 国内 VPS 可直接使用镜像；海外部署可在 .env 中覆盖为空或官方地址。
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        ALPINE_MIRROR: ${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
+    image: keysprint:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置 JWT_SECRET}
+      CLASS_SYSTEM_URL: ${CLASS_SYSTEM_URL:-}
+      CLASS_SYSTEM_PATH: ${CLASS_SYSTEM_PATH:-/api/integration/classes}
+      CLASS_SYSTEM_TOKEN: ${CLASS_SYSTEM_TOKEN:-}
+      CLASS_SYSTEM_TIMEOUT: ${CLASS_SYSTEM_TIMEOUT:-8s}
+    volumes:
+      - keysprint_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  keysprint_data:
