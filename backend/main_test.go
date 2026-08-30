@@ -48,7 +48,7 @@ func request(t *testing.T, h http.Handler, method, path, body, token string) (in
 
 func TestHealth(t *testing.T) {
 	status, out := request(t, testApp(t).routes(), "GET", "/api/health", "", "")
-	if status != http.StatusOK || out["status"] != "ok" {
+	if status != http.StatusOK || out["status"] != "ok" || out["version"] != version || out["commit"] != commit {
 		t.Fatalf("health: %d %v", status, out)
 	}
 }

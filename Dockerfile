@@ -19,11 +19,15 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY backend/ ./
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
+ARG VCS_REF=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -mod=readonly -buildvcs=false -trimpath \
-    -tags="netgo,osusergo" -ldflags="-s -w -buildid=" -o /keysprint .
+    -tags="netgo,osusergo" \
+    -ldflags="-s -w -buildid= -X main.version=${VERSION} -X main.commit=${VCS_REF}" \
+    -o /keysprint .
 
 FROM alpine:3.22 AS certificates
 ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine

@@ -9,6 +9,7 @@
 发令一响，文字在指尖起跑。
 
 [![Verify and publish](https://github.com/Alumos/KeySprint/actions/workflows/publish-container.yml/badge.svg)](https://github.com/Alumos/KeySprint/actions/workflows/publish-container.yml)
+![Release](https://img.shields.io/github/v/release/Alumos/KeySprint?style=flat-square)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=20232A)
 ![Image](https://img.shields.io/badge/image-amd64%20%7C%20arm64-2496ED?style=flat-square&logo=docker&logoColor=white)
@@ -40,7 +41,7 @@ flowchart LR
 
 服务器只需要 Docker 与 Compose 插件，不需要 Go、Node.js 或项目源码。
 
-首次发布镜像后，请在 GitHub 的 **Packages → keysprint → Package settings** 中将镜像设为 **Public**。公开后服务器无需登录 GHCR。
+GHCR 镜像已经公开，服务器无需登录即可直接拉取。
 
 ```bash
 mkdir -p /opt/keysprint
@@ -66,7 +67,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.0.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ## ✦ 自动构建
 
@@ -76,11 +77,28 @@ docker compose -f compose.deploy.yaml logs -f keysprint
 2. 安装锁定的前端依赖并执行 TypeScript/Vite 生产构建；
 3. 构建双架构极简镜像；
 4. 发布到 `ghcr.io/alumos/keysprint`；
-5. 为镜像附加 SBOM 与 provenance。
+5. 为镜像附加 SBOM 与 provenance；
+6. 正式 Tag 构建完成后自动创建 GitHub Release。
 
 推送 `main` 会生成 `latest`、`main` 和 `sha-xxxxxxx`；推送 `v1.2.3` 标签还会生成 `1.2.3`、`1.2` 与 `1`。Pull Request 只测试和构建，不发布镜像。
 
 运行镜像以 `scratch` 为底，只包含静态 Go 二进制、前端资源与 HTTPS 根证书；没有 shell、包管理器或多余系统工具。容器使用非 root 用户、只读根文件系统、应用内健康检查并移除全部 Linux capabilities。
+
+## ✦ 版本与 Tag
+
+当前稳定版本为 `v1.0.0`。KeySprint 遵循 Semantic Versioning：
+
+- `PATCH`：向后兼容的修复与安全更新；
+- `MINOR`：向后兼容的新功能；
+- `MAJOR`：不兼容的 API、配置或数据行为变化；
+- `-rc.N`：正式发布前的候选版本。
+
+根目录 [`VERSION`](VERSION) 是唯一版本源，并与前端包版本、Changelog 和 Git Tag 自动校验。完整规则与发布步骤见 [`RELEASING.md`](RELEASING.md)，版本变化见 [`CHANGELOG.md`](CHANGELOG.md)。已发布 Tag 永不移动或覆盖。
+
+```bash
+make version
+./scripts/check-version.sh
+```
 
 ## ✦ 配置
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -18,6 +19,9 @@ import (
 
 //go:embed schema.sql
 var schema string
+
+var version = "dev"
+var commit = "unknown"
 
 type app struct {
 	db                 *sql.DB
@@ -34,6 +38,10 @@ type app struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("KeySprint %s (%s)\n", version, commit)
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--healthcheck" {
 		res, err := (&http.Client{Timeout: 3 * time.Second}).Get(getenv("HEALTHCHECK_URL", "http://127.0.0.1:8080/api/health"))
 		if err != nil {
@@ -79,7 +87,7 @@ func main() {
 	_ = a.loadIntegrationConfig()
 	a.restoreTimers()
 	srv := &http.Server{Addr: getenv("ADDR", ":8080"), Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 75 * time.Second}
-	log.Printf("KeySprint listening on %s", srv.Addr)
+	log.Printf("KeySprint %s (%s) listening on %s", version, commit, srv.Addr)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
@@ -153,7 +161,7 @@ func (a *app) routes() http.Handler {
 			writeError(w, http.StatusServiceUnavailable, "数据库不可用")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version, "commit": commit})
 	})
 	mux.HandleFunc("GET /api/setup/status", a.setupStatus)
 	mux.HandleFunc("POST /api/setup/init", a.setupInit)
