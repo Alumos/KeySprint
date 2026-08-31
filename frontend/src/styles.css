@@ -6,3 +6,41 @@
 .char-cell{grid-template-rows:17px 23px 32px}.char-cell small{display:block;grid-row:1}.char-cell b{grid-row:2;font-size:15px;line-height:22px;color:#a1a1aa;font-weight:400}.char-cell i{grid-row:3;font-size:20px;line-height:29px;color:#27272a;font-weight:600;border-top:0;border-bottom:1px solid #d4d4d8}.char-cell.is-correct i{color:#15803d;border-top:0;border-bottom-color:#d4d4d8}.char-cell.is-wrong i{color:#dc2626;border-top:0;border-bottom-color:#d4d4d8}.char-cell.is-caret::after{bottom:4px;height:25px}.typing-content.without-pinyin .char-cell{grid-template-rows:0 23px 32px}.typing-content.without-pinyin .char-cell small{display:block;visibility:hidden;height:0}@media(max-width:700px){.char-cell b{font-size:14px}.char-cell i{font-size:19px}}
 .race-shell{overflow-anchor:none}.hidden-ime{position:absolute;top:0;left:0;bottom:auto;opacity:0;width:1px;height:1px;scroll-margin:0;pointer-events:none}
 .app-root{min-height:100vh;display:flex;flex-direction:column}.app-content{flex:1;min-width:0}.app-content>.auth-shell,.app-content>.race-shell,.app-content>.race-loading,.app-content>.admin-shell{min-height:calc(100vh - 40px)}.site-footer{min-height:40px;padding:10px 16px;background:#fff;border-top:1px solid #e4e4e7;display:flex;align-items:center;justify-content:center;font-size:12px;color:#71717a}.site-footer a:hover{color:#18181b;text-decoration:underline}
+
+/* Shared typography system (kept in sync with ClassOrbit). */
+:root {
+  --app-font-kai: "Kaiti SC", STKaiti, KaiTi, "楷体", serif;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  font-family: var(--app-font-kai);
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--app-font-kai);
+}
+
+body { font-size: var(--text-md); }
+.button { font-size: var(--text-base); }
+.button-sm { font-size: var(--text-sm); }
+.input, .textarea, .select-trigger, .select-item { font-size: var(--text-base); }
+.field-label { font-size: var(--text-base); }
+.field-hint, .panel-header p, .dialog-head p { font-size: var(--text-sm); }
+.panel-header h2 { font-size: var(--text-md); }
+.dialog-head h2 { font-size: var(--text-lg); }
+.data-table, .data-table th { font-size: var(--text-sm); }
+.sidebar-brand strong, .topbar-title h1 { font-size: var(--text-md); }
+.sidebar-brand small, .sidebar-foot span, .topbar-title span { font-size: var(--text-xs); }
+.sidebar nav button, .sidebar-foot strong, .dropdown-item, .toast { font-size: var(--text-base); }
+.stat-cell span, .stat-cell small, .badge { font-size: var(--text-xs); }
+.auth-brand h1 { font-size: var(--text-xl); }
+.auth-brand p, .article-preview { font-size: var(--text-base); }
+.site-footer { font-size: var(--text-sm); }
+.mono { font-family: var(--app-font-kai); font-variant-numeric: tabular-nums; }

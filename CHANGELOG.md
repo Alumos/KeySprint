@@ -8,6 +8,13 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [1.3.0] - 2026-08-31
+
+### Changed
+
+- 全站改用统一楷体字体栈，并与 ClassOrbit 共用 11–20px 的界面字号层级。
+- 对齐侧栏、顶栏、按钮、表单、表格、卡片与弹窗等主要界面的排版尺度。
+
 ## [1.2.0] - 2026-08-30
 
 ### Added
@@ -51,7 +58,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.0.0
