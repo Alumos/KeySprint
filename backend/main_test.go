@@ -3,6 +3,8 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -261,7 +263,7 @@ func TestSyncRenameKeepsClassAndResultAssociation(t *testing.T) {
 	if _, err := a.db.Exec("INSERT INTO competitions(teacher_id,article_id,access_code) VALUES(1,1,'RENAME')"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.db.Exec("INSERT INTO results(competition_id,student_id,student_name,class_id,total_count) VALUES(1,'001','张三',?,1)", classID); err != nil {
+	if _, err := a.db.Exec("INSERT INTO results(competition_id,student_id,student_name,class_id,typed_count) VALUES(1,'001','张三',?,1)", classID); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := a.replaceSyncedClasses(r, 1, []remoteClass{{ID: "stable-1", Name: "五 1 班", Students: []remoteStudent{{ID: "999", Name: "新同学"}}}}); err != nil {
@@ -273,5 +275,113 @@ func TestSyncRenameKeepsClassAndResultAssociation(t *testing.T) {
 	_ = a.db.QueryRow("SELECT class_id FROM results WHERE id=1").Scan(&resultClassID)
 	if renamed != "五 1 班" || resultClassID != classID {
 		t.Fatalf("rename association lost: name=%q class_id=%d original=%d", renamed, resultClassID, classID)
+	}
+}
+
+func TestCompetitionCreationIsIdempotent(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	if status, _ := request(t, h, "POST", "/api/setup/init", `{"teacherUsername":"teacher","teacherPassword":"secret1"}`, ""); status != http.StatusOK {
+		t.Fatalf("setup status=%d", status)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	if status, _ := request(t, h, "POST", "/api/articles", `{"title":"金色花","content":"一二三四五六七八九十"}`, token); status != http.StatusOK {
+		t.Fatalf("article status=%d", status)
+	}
+	body := `{"articleId":1,"timeLimit":300,"requestId":"request-123"}`
+	status, first := request(t, h, "POST", "/api/competition/create", body, token)
+	if status != http.StatusOK || first["created"] != true {
+		t.Fatalf("first create: %d %v", status, first)
+	}
+	status, second := request(t, h, "POST", "/api/competition/create", body, token)
+	if status != http.StatusOK || second["created"] != false || first["id"] != second["id"] || first["accessCode"] != second["accessCode"] {
+		t.Fatalf("idempotent create: first=%v second=%v", first, second)
+	}
+	var count int
+	_ = a.db.QueryRow("SELECT COUNT(*) FROM competitions").Scan(&count)
+	if count != 1 {
+		t.Fatalf("competition count=%d, want 1", count)
+	}
+}
+
+func TestResultMetricsAreDerivedFromCountsAndDuration(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	if status, _ := request(t, h, "POST", "/api/setup/init", `{"teacherUsername":"teacher","teacherPassword":"secret1"}`, ""); status != http.StatusOK {
+		t.Fatalf("setup status=%d", status)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	request(t, h, "POST", "/api/articles", `{"title":"测试","content":"一二三四五六七八九十"}`, token)
+	_, competition := request(t, h, "POST", "/api/competition/create", `{"articleId":1,"timeLimit":300,"customCode":"METRICS","requestId":"metrics-123"}`, token)
+	competitionID := int64(competition["id"].(float64))
+	status, _ := request(t, h, "POST", "/api/competition/start", fmt.Sprintf(`{"id":%d}`, competitionID), token)
+	if status != http.StatusOK {
+		t.Fatalf("start status=%d", status)
+	}
+
+	// Deliberately include bogus legacy derived values. The server must ignore
+	// them and calculate 6/8 = 75%% and 6*60/30 = 12 correct chars/minute.
+	payload := fmt.Sprintf(`{"competitionId":%d,"studentId":"001","studentName":"张三","correctCount":6,"typedCount":8,"duration":30,"accuracy":0.01,"speed":9999}`, competitionID)
+	status, result := request(t, h, "POST", "/api/results", payload, "")
+	if status != http.StatusOK || result["success"] != true {
+		t.Fatalf("submit: %d %v", status, result)
+	}
+	items, err := queryResults(a.db, resultSelect+" WHERE r.competition_id=?"+resultOrder, competitionID)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("query results: %v %#v", err, items)
+	}
+	if math.Abs(items[0].Accuracy-0.75) > 0.0001 || math.Abs(items[0].Speed-12) > 0.0001 || items[0].TypedCount != 8 {
+		t.Fatalf("metrics: %#v", items[0])
+	}
+}
+
+func TestLegacyResultsAreNormalizedWithoutDataLoss(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE teachers(id INTEGER PRIMARY KEY,username TEXT,password_hash TEXT,display_name TEXT,is_admin INTEGER,created_at TEXT);
+		CREATE TABLE articles(id INTEGER PRIMARY KEY,teacher_id INTEGER,title TEXT,content TEXT,created_at TEXT);
+		CREATE TABLE competitions(id INTEGER PRIMARY KEY,teacher_id INTEGER,article_id INTEGER,access_code TEXT UNIQUE,status TEXT DEFAULT 'waiting',time_limit INTEGER DEFAULT 300,started_at TEXT,stopped_at TEXT,created_at TEXT);
+		CREATE TABLE classes(id INTEGER PRIMARY KEY,teacher_id INTEGER,name TEXT,created_at TEXT);
+		CREATE TABLE class_students(id INTEGER PRIMARY KEY,class_id INTEGER,student_id TEXT,student_name TEXT,created_at TEXT);
+		CREATE TABLE results(id INTEGER PRIMARY KEY,competition_id INTEGER,student_id TEXT,student_name TEXT,correct_count INTEGER,total_count INTEGER,accuracy REAL,speed REAL,duration INTEGER,created_at TEXT);
+		INSERT INTO teachers VALUES(1,'teacher','hash','教师',1,'2026-01-01');
+		INSERT INTO articles VALUES(1,1,'金色花','一二三四五六七八九十','2026-01-01');
+		INSERT INTO competitions VALUES(1,1,1,'LEGACY','stopped',300,'2026-01-01','2026-01-01','2026-01-01');
+		INSERT INTO results VALUES(1,1,'001','张三',6,8,0.01,9999,30,'2026-01-01');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Startup applies the current idempotent schema before explicit migrations.
+	if _, err = db.Exec(schema); err != nil {
+		t.Fatal(err)
+	}
+	if err = migrateSchema(db); err != nil {
+		t.Fatal(err)
+	}
+
+	typedExists, err := hasColumn(db, "results", "typed_count")
+	if err != nil || !typedExists {
+		t.Fatalf("typed_count migration: exists=%v err=%v", typedExists, err)
+	}
+	accuracyExists, _ := hasColumn(db, "results", "accuracy")
+	speedExists, _ := hasColumn(db, "results", "speed")
+	if accuracyExists || speedExists {
+		t.Fatalf("derived columns still exist: accuracy=%v speed=%v", accuracyExists, speedExists)
+	}
+	var correct, typed, duration int64
+	if err = db.QueryRow("SELECT correct_count,typed_count,duration FROM results WHERE id=1").Scan(&correct, &typed, &duration); err != nil {
+		t.Fatal(err)
+	}
+	if correct != 6 || typed != 8 || duration != 30 {
+		t.Fatalf("migrated result: correct=%d typed=%d duration=%d", correct, typed, duration)
 	}
 }

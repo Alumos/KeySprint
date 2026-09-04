@@ -8,6 +8,18 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [1.4.0] - 2026-09-04
+
+### Fixed
+
+- 为竞赛创建增加前端提交锁和服务端幂等校验，避免连续点击或请求重发生成两个比赛编号。
+- 正确率统一为“正确字数 / 已输入字数”，速度统一为“每分钟正确字数”，且由后端根据原始计数计算。
+
+### Changed
+
+- 成绩表仅持久化正确字数、已输入字数和用时，移除重复的正确率与速度字段；旧数据库启动时自动无损迁移。
+- 成绩明细与导出明确区分“已输入字数”和范文篇幅，并减少竞赛实时页面与成绩删除后的重复请求。
+
 ## [1.3.0] - 2026-08-31
 
 ### Changed
@@ -58,7 +70,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.2.0
 [1.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.1.0

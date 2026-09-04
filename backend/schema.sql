@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS competitions (
   teacher_id INTEGER NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
   article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE RESTRICT,
   access_code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  request_id TEXT,
   status TEXT NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting','running','stopped')),
   time_limit INTEGER NOT NULL DEFAULT 300 CHECK(time_limit BETWEEN 10 AND 86400),
   pinyin_enabled INTEGER NOT NULL DEFAULT 1,
@@ -43,14 +44,11 @@ CREATE TABLE IF NOT EXISTS results (
   competition_id INTEGER NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
   student_id TEXT NOT NULL,
   student_name TEXT NOT NULL,
-  correct_count INTEGER NOT NULL DEFAULT 0,
-  total_count INTEGER NOT NULL DEFAULT 0,
-  accuracy REAL NOT NULL DEFAULT 0,
-  speed REAL NOT NULL DEFAULT 0,
-  duration INTEGER NOT NULL DEFAULT 0,
+  correct_count INTEGER NOT NULL DEFAULT 0 CHECK(correct_count >= 0),
+  typed_count INTEGER NOT NULL DEFAULT 0 CHECK(typed_count >= correct_count),
+  duration INTEGER NOT NULL DEFAULT 0 CHECK(duration >= 0),
   class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(competition_id, student_id)
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS classes (

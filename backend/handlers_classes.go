@@ -240,13 +240,12 @@ func (a *app) deleteClass(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) studentAnalytics(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	rows, err := a.db.Query(resultSelect+" WHERE c.teacher_id=? AND r.student_id=? ORDER BY c.created_at", u.ID, r.PathValue("studentId"))
+	items, err := queryResults(a.db, resultSelect+" WHERE c.teacher_id=? AND r.student_id=? ORDER BY c.created_at", u.ID, r.PathValue("studentId"))
 	if err != nil {
 		writeError(w, 500, "读取分析失败")
 		return
 	}
-	defer rows.Close()
-	writeJSON(w, 200, scanResults(rows))
+	writeJSON(w, 200, items)
 }
 func (a *app) classStudents(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
@@ -266,7 +265,17 @@ func (a *app) classStudents(w http.ResponseWriter, r *http.Request) {
 }
 func (a *app) classAnalytics(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	rows, err := a.db.Query(`SELECT c.id,c.access_code,c.created_at,a.title,COUNT(DISTINCT r.student_id),ROUND(AVG(r.speed),1),ROUND(AVG(r.accuracy)*100,1),ROUND(AVG(r.correct_count),1),ROUND(AVG(r.duration),1) FROM results r JOIN competitions c ON c.id=r.competition_id JOIN articles a ON a.id=c.article_id JOIN classes cl ON cl.id=r.class_id WHERE c.teacher_id=? AND cl.teacher_id=? AND cl.active=1 AND cl.name=? GROUP BY c.id ORDER BY c.created_at`, u.ID, u.ID, r.PathValue("className"))
+	rows, err := a.db.Query(`SELECT c.id,c.access_code,c.created_at,a.title,
+		COUNT(DISTINCT r.student_id),
+		ROUND(AVG(CASE WHEN r.duration>0 THEN r.correct_count*60.0/r.duration ELSE 0 END),1),
+		ROUND(AVG(CASE WHEN r.typed_count>0 THEN r.correct_count*100.0/r.typed_count ELSE 0 END),1),
+		ROUND(AVG(r.correct_count),1),ROUND(AVG(r.duration),1)
+		FROM results r
+		JOIN competitions c ON c.id=r.competition_id
+		JOIN articles a ON a.id=c.article_id
+		JOIN classes cl ON cl.id=r.class_id
+		WHERE c.teacher_id=? AND cl.teacher_id=? AND cl.active=1 AND cl.name=?
+		GROUP BY c.id ORDER BY c.created_at`, u.ID, u.ID, r.PathValue("className"))
 	if err != nil {
 		writeError(w, 500, "读取分析失败")
 		return

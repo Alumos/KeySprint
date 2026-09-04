@@ -173,13 +173,13 @@ export default function Compete() {
     () => chars.map((ch, i) => (ch === "\n" ? -1 : i)).filter((x) => x >= 0),
     [chars],
   );
-  const total = Object.keys(buffer).length;
+  const typedCount = Object.keys(buffer).length;
   const correct = Object.entries(buffer).filter(
     ([i, ch]) => chars[Number(i)] === ch,
   ).length;
-  const accuracy = total ? correct / total : 1;
+  const accuracy = typedCount ? correct / typedCount : 1;
   const speed = elapsed ? correct / (elapsed / 60) : 0;
-  const progress = typeable.length ? (total / typeable.length) * 100 : 0;
+  const progress = typeable.length ? (typedCount / typeable.length) * 100 : 0;
   const key = comp ? `keysprint_session_${comp.id}_${studentId}` : "";
   const py = useMemo(
     () =>
@@ -257,7 +257,7 @@ export default function Compete() {
     setStatus("finished");
     setResultOpen(true);
     persist({ submitted: true });
-    if (late || total === 0) {
+    if (late || typedCount === 0) {
       setSubmitState("idle");
       return;
     }
@@ -266,9 +266,7 @@ export default function Compete() {
       studentId,
       studentName,
       correctCount: correct,
-      totalCount: total,
-      accuracy,
-      speed,
+      typedCount,
       duration: Math.min(
         comp!.time_limit,
         Math.floor((Date.now() - anchor) / 1000),
@@ -290,10 +288,9 @@ export default function Compete() {
     correct,
     late,
     persist,
-    speed,
     studentId,
     studentName,
-    total,
+    typedCount,
   ]);
   finishRef.current = () => {
     void finish();
@@ -526,7 +523,7 @@ export default function Compete() {
             {
               label: "正确率",
               value: `${(accuracy * 100).toFixed(1)}%`,
-              detail: `${correct} / ${total} 字正确`,
+              detail: `${correct} / ${typedCount}（正确 / 已输入）`,
             },
             {
               label: "完成进度",

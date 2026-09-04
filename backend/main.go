@@ -108,6 +108,7 @@ func migrateSchema(db *sql.DB) error {
 	// Earlier database schemas may predate per-competition pinyin settings.
 	// Ignore the duplicate-column error for databases created from the current schema.
 	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN pinyin_enabled INTEGER NOT NULL DEFAULT 1`)
+	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN request_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN remote_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN active INTEGER NOT NULL DEFAULT 1`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','classorbit'))`)
@@ -127,14 +128,7 @@ func migrateSchema(db *sql.DB) error {
 		JOIN competitions cp ON cp.id=results.competition_id
 		WHERE cl.teacher_id=cp.teacher_id AND s.student_id=results.student_id AND s.student_name=results.student_name
 	)=1`)
-	// Earlier schemas allowed duplicate attempts. Keep each student's
-	// best attempt before adding the conflict target used by the new upsert.
-	if _, err := db.Exec(`DELETE FROM results WHERE id IN (
-		SELECT id FROM (SELECT id, ROW_NUMBER() OVER (
-			PARTITION BY competition_id, student_id
-			ORDER BY correct_count DESC, speed DESC, id DESC
-		) AS rn FROM results) WHERE rn > 1
-	)`); err != nil {
+	if err := migrateResultMetrics(db); err != nil {
 		return err
 	}
 	// Recreate this named index in case an earlier build created a non-unique
@@ -157,6 +151,99 @@ func migrateSchema(db *sql.DB) error {
 		return err
 	}
 	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_classes_teacher_remote ON classes(teacher_id,remote_id) WHERE remote_id IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_competitions_teacher_request ON competitions(teacher_id,request_id) WHERE request_id IS NOT NULL`)
+	return err
+}
+
+func hasColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, dataType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// migrateResultMetrics removes accuracy and speed from persistent storage.
+// Both values are derived from the three source facts: correct characters,
+// typed characters, and elapsed seconds. Keeping only the source facts avoids
+// contradictory rows created by older clients using a different formula.
+func migrateResultMetrics(db *sql.DB) error {
+	typedCountExists, err := hasColumn(db, "results", "typed_count")
+	if err != nil {
+		return err
+	}
+	if typedCountExists {
+		return nil
+	}
+
+	// Legacy databases may contain multiple attempts from before the unique
+	// constraint was introduced. Preserve the attempt with the highest speed,
+	// then accuracy, before copying into the normalized table.
+	if _, err = db.Exec(`DELETE FROM results WHERE id IN (
+		SELECT id FROM (SELECT id, ROW_NUMBER() OVER (
+			PARTITION BY competition_id, student_id
+			ORDER BY CASE WHEN duration>0 THEN correct_count*1.0/duration ELSE 0 END DESC,
+			         CASE WHEN total_count>0 THEN correct_count*1.0/total_count ELSE 0 END DESC,
+			         correct_count DESC, id DESC
+		) AS rn FROM results) WHERE rn > 1
+	)`); err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`CREATE TABLE results_normalized (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		competition_id INTEGER NOT NULL REFERENCES competitions(id) ON DELETE CASCADE,
+		student_id TEXT NOT NULL,
+		student_name TEXT NOT NULL,
+		correct_count INTEGER NOT NULL DEFAULT 0 CHECK(correct_count >= 0),
+		typed_count INTEGER NOT NULL DEFAULT 0 CHECK(typed_count >= correct_count),
+		duration INTEGER NOT NULL DEFAULT 0 CHECK(duration >= 0),
+		class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO results_normalized(
+		id,competition_id,student_id,student_name,correct_count,typed_count,duration,class_id,created_at
+	) SELECT id,competition_id,student_id,student_name,
+		MAX(correct_count,0),MAX(total_count,correct_count,0),MAX(duration,0),class_id,created_at
+	FROM results`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DROP TABLE results`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE results_normalized RENAME TO results`); err != nil {
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_results_competition ON results(competition_id)`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_results_student_lookup ON results(student_id,competition_id)`)
 	return err
 }
 

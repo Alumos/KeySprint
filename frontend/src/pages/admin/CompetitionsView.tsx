@@ -1,13 +1,237 @@
-import { BarChart3, Clipboard, Play, Plus, Square, Trash2, Users } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { BarChart3, Clipboard, Play, Plus, Square, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSelect, Badge, Button, Empty, Field, Input, Modal, Panel, PanelHeader, StatStrip } from '../../components/ui'
 import { api, json, wsURL } from '../../lib/api'
 import type { Article, Competition, Student } from '../../lib/types'
 
-export default function CompetitionsView({notify,openResults}:{notify:(s:string)=>void;openResults:(id:number)=>void}){const[items,setItems]=useState<Competition[]>([]);const[articles,setArticles]=useState<Article[]>([]);const[articleId,setArticleId]=useState('');const[minutes,setMinutes]=useState('5');const[code,setCode]=useState('');const[pinyinEnabled,setPinyinEnabled]=useState(true);const[participants,setParticipants]=useState<Record<number,Student[]>>({});const[showPeople,setShowPeople]=useState<Competition|null>(null);const[confirm,setConfirm]=useState<{type:'start'|'stop'|'delete';comp:Competition}|null>(null);const ws=useRef<WebSocket|null>(null)
-  async function load(){const[i,a]=await Promise.all([api<Competition[]>('/api/competitions'),api<Article[]>('/api/articles/selected')]);setItems(i);setArticles(a);for(const c of i.filter(x=>x.status!=='stopped')){api<any>(`/api/competitions/${c.id}/participants`).then(x=>setParticipants(p=>({...p,[c.id]:x.participants}))).catch(()=>{})}}
-  useEffect(()=>{load()},[]);useEffect(()=>{let closed=false;function connect(){const s=new WebSocket(wsURL());ws.current=s;s.onopen=()=>s.send(JSON.stringify({type:'teacher:watch',competitionIds:items.map(x=>x.id)}));s.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='participants:update')setParticipants(p=>({...p,[m.data.competitionId]:m.data.participants}));if(m.type==='competition:stop'||m.type==='result:update')load()};s.onclose=()=>{if(!closed)setTimeout(connect,1800)}}if(items.length)connect();return()=>{closed=true;ws.current?.close()}},[items.map(x=>x.id).join(',')])
-  async function create(){try{await api('/api/competition/create',json('POST',{articleId:Number(articleId),timeLimit:Number(minutes)*60,customCode:code,pinyinEnabled}));setCode('');notify('竞赛已创建');load()}catch(e){notify((e as Error).message)}}
-  async function execute(){if(!confirm)return;const{id}=confirm.comp;try{if(confirm.type==='start')await api('/api/competition/start',json('POST',{id}));if(confirm.type==='stop')await api('/api/competition/stop',json('POST',{id}));if(confirm.type==='delete')await api(`/api/competitions/${id}`,{method:'DELETE'});notify(confirm.type==='start'?'竞赛已开始':confirm.type==='stop'?'竞赛已停止':'竞赛已删除');setConfirm(null);load()}catch(e){notify((e as Error).message)}}
-  const active=items.filter(x=>x.status!=='stopped'),running=items.filter(x=>x.status==='running')
-  return <div className="admin-page"><StatStrip items={[{label:'进行中',value:running.length,detail:'正在接受学生输入'},{label:'等待开始',value:items.filter(x=>x.status==='waiting').length},{label:'历史竞赛',value:items.filter(x=>x.status==='stopped').length},{label:'当前在线',value:Object.values(participants).reduce((n,x)=>n+x.length,0),detail:'按比赛累计'}]}/><Panel><PanelHeader title="创建竞赛" description="选择范文并设置比赛限时、编号与输入辅助"/><div className="panel-body create-competition"><Field label="竞赛范文"><AppSelect value={articleId} onValueChange={setArticleId} placeholder="选择已选用的文章" items={articles.map(x=>({value:String(x.id),label:x.uploader?`${x.title} · ${x.uploader}`:x.title}))}/></Field><Field label="限时（分钟）"><Input type="number" min="1" max="1440" value={minutes} onChange={e=>setMinutes(e.target.value)}/></Field><Field label="比赛编号" hint="留空自动生成"><Input className="mono" maxLength={20} value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="自动生成"/></Field><label className="competition-option"><input type="checkbox" checked={pinyinEnabled} onChange={e=>setPinyinEnabled(e.target.checked)}/><span><strong>拼音提示</strong><small>向学生显示</small></span></label><Button onClick={create} disabled={!articleId}><Plus size={14}/>创建竞赛</Button></div></Panel><Panel><PanelHeader title="活跃竞赛" description="学生可通过比赛编号进入等待室"/><div className="table-wrap">{active.length?<table className="data-table"><thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>限时</th><th>已进入</th><th style={{textAlign:'right'}}>操作</th></tr></thead><tbody>{active.map(c=><tr key={c.id}><td className="td-title">{c.article_title}</td><td><button className="code-copy mono" onClick={()=>navigator.clipboard.writeText(c.access_code).then(()=>notify('比赛编号已复制'))}>{c.access_code}<Clipboard size={12}/></button></td><td><Badge tone={c.status==='running'?'success':'warning'}>{c.status==='running'?'进行中':'等待开始'}</Badge></td><td><Badge tone={c.pinyin_enabled?'blue':'neutral'}>{c.pinyin_enabled?'开启':'关闭'}</Badge></td><td>{Math.round(c.time_limit/60)} 分钟</td><td><button className="link-button" onClick={()=>setShowPeople(c)}>{participants[c.id]?.length||0} 人</button></td><td><div className="row-actions">{c.status==='waiting'?<Button size="sm" onClick={()=>setConfirm({type:'start',comp:c})}><Play size={13}/>开始</Button>:<Button size="sm" variant="danger" onClick={()=>setConfirm({type:'stop',comp:c})}><Square size={13}/>停止</Button>}<Button size="icon" variant="ghost" onClick={()=>openResults(c.id)} title="查看成绩"><BarChart3 size={14}/></Button></div></td></tr>)}</tbody></table>:<Empty title="没有活跃竞赛" description="在上方创建一场新竞赛"/>}</div></Panel><Panel><PanelHeader title="竞赛历史" description="所有已创建竞赛及其状态"/><div className="table-wrap">{items.length?<table className="data-table"><thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>创建时间</th><th style={{textAlign:'right'}}>操作</th></tr></thead><tbody>{items.map(c=><tr key={c.id}><td className="td-title">{c.article_title}</td><td className="mono">{c.access_code}</td><td><Badge tone={c.status==='running'?'success':c.status==='waiting'?'warning':'neutral'}>{c.status==='running'?'进行中':c.status==='waiting'?'等待开始':'已结束'}</Badge></td><td>{c.pinyin_enabled?'开启':'关闭'}</td><td>{c.created_at}</td><td><div className="row-actions"><Button size="icon" variant="ghost" onClick={()=>openResults(c.id)}><BarChart3 size={14}/></Button><Button size="icon" variant="ghost" disabled={c.status==='running'} onClick={()=>setConfirm({type:'delete',comp:c})}><Trash2 size={14}/></Button></div></td></tr>)}</tbody></table>:<Empty title="暂无竞赛记录"/>}</div></Panel><Modal open={!!showPeople} onOpenChange={v=>!v&&setShowPeople(null)} title="已进入比赛的学生" description={`${showPeople?.article_title||''} · 实时更新`}><div className="table-wrap"><table className="data-table"><thead><tr><th>学号</th><th>姓名</th></tr></thead><tbody>{(participants[showPeople?.id||0]||[]).map((p,i)=><tr key={i}><td>{p.studentId}</td><td>{p.studentName}</td></tr>)}</tbody></table>{!(participants[showPeople?.id||0]?.length)&&<Empty title="还没有学生进入"/>}</div></Modal><Modal open={!!confirm} onOpenChange={v=>!v&&setConfirm(null)} title={confirm?.type==='start'?'开始竞赛':confirm?.type==='stop'?'停止竞赛':'删除竞赛'} description={confirm?.comp.article_title} footer={<><Button variant="outline" onClick={()=>setConfirm(null)}>取消</Button><Button variant={confirm?.type==='stop'||confirm?.type==='delete'?'danger':'default'} onClick={execute}>确认</Button></>}><p style={{fontSize:13}}>{confirm?.type==='start'?'发令后所有等待中的学生会立即开始计时。':confirm?.type==='stop'?'停止后所有学生会立即结束并提交成绩。':'竞赛及其全部成绩会被永久删除。'}</p></Modal></div>}
+type Confirmation = { type: 'start' | 'stop' | 'delete'; comp: Competition }
+type CreateResponse = { id: number; accessCode: string; created: boolean }
+
+function newRequestID() {
+  try {
+    const values = new Uint32Array(4)
+    window.crypto.getRandomValues(values)
+    return Array.from(values, value => value.toString(36)).join('-')
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  }
+}
+
+export default function CompetitionsView({
+  notify,
+  openResults,
+}: {
+  notify: (message: string) => void
+  openResults: (id: number) => void
+}) {
+  const [items, setItems] = useState<Competition[]>([])
+  const [articles, setArticles] = useState<Article[]>([])
+  const [articleId, setArticleId] = useState('')
+  const [minutes, setMinutes] = useState('5')
+  const [code, setCode] = useState('')
+  const [pinyinEnabled, setPinyinEnabled] = useState(true)
+  const [participants, setParticipants] = useState<Record<number, Student[]>>({})
+  const [showPeople, setShowPeople] = useState<Competition | null>(null)
+  const [confirm, setConfirm] = useState<Confirmation | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [executing, setExecuting] = useState(false)
+  const creatingGuard = useRef(false)
+  const requestID = useRef(newRequestID())
+
+  const loadCompetitions = useCallback(async () => {
+    const competitions = await api<Competition[]>('/api/competitions')
+    setItems(competitions)
+
+    // Fetch each active room once, then update state once. Live changes arrive
+    // over the socket and no longer trigger an N+1 refresh per submitted score.
+    const active = competitions.filter(item => item.status !== 'stopped')
+    const counts = await Promise.all(active.map(async item => {
+      try {
+        const data = await api<{ participants: Student[] }>(`/api/competitions/${item.id}/participants`)
+        return [item.id, data.participants] as const
+      } catch {
+        return [item.id, []] as const
+      }
+    }))
+    setParticipants(Object.fromEntries(counts))
+  }, [])
+
+  useEffect(() => {
+    void Promise.all([
+      loadCompetitions(),
+      api<Article[]>('/api/articles/selected').then(setArticles),
+    ]).catch(error => notify((error as Error).message))
+  }, [loadCompetitions, notify])
+
+  // Editing the form represents a new creation intent. If a response was lost,
+  // retrying the unchanged form keeps the same ID and returns the first row.
+  useEffect(() => {
+    requestID.current = newRequestID()
+  }, [articleId, minutes, code, pinyinEnabled])
+
+  const watchKey = useMemo(() => items.map(item => item.id).join(','), [items])
+  useEffect(() => {
+    if (!watchKey) return
+    let closed = false
+    let reconnectTimer = 0
+    let socket: WebSocket | null = null
+
+    function connect() {
+      const connection = new WebSocket(wsURL())
+      socket = connection
+      connection.onopen = () => connection.send(JSON.stringify({
+        type: 'teacher:watch',
+        competitionIds: watchKey.split(',').map(Number),
+      }))
+      connection.onmessage = event => {
+        const message = JSON.parse(event.data)
+        if (message.type === 'participants:update') {
+          setParticipants(previous => ({
+            ...previous,
+            [message.data.competitionId]: message.data.participants,
+          }))
+        }
+        if (message.type === 'competition:stop') void loadCompetitions()
+      }
+      connection.onclose = () => {
+        if (!closed) reconnectTimer = window.setTimeout(connect, 1800)
+      }
+    }
+
+    connect()
+    return () => {
+      closed = true
+      window.clearTimeout(reconnectTimer)
+      socket?.close()
+    }
+  }, [loadCompetitions, watchKey])
+
+  async function create() {
+    if (creatingGuard.current || !articleId) return
+    creatingGuard.current = true
+    setCreating(true)
+    try {
+      const response = await api<CreateResponse>('/api/competition/create', json('POST', {
+        articleId: Number(articleId),
+        timeLimit: Number(minutes) * 60,
+        customCode: code,
+        pinyinEnabled,
+        requestId: requestID.current,
+      }))
+      notify(response.created === false ? '该创建请求已处理，未重复生成竞赛' : `竞赛已创建：${response.accessCode}`)
+      requestID.current = newRequestID()
+      setCode('')
+      await loadCompetitions()
+    } catch (error) {
+      notify((error as Error).message)
+    } finally {
+      creatingGuard.current = false
+      setCreating(false)
+    }
+  }
+
+  async function execute() {
+    if (!confirm || executing) return
+    const { id } = confirm.comp
+    setExecuting(true)
+    try {
+      if (confirm.type === 'start') await api('/api/competition/start', json('POST', { id }))
+      if (confirm.type === 'stop') await api('/api/competition/stop', json('POST', { id }))
+      if (confirm.type === 'delete') await api(`/api/competitions/${id}`, { method: 'DELETE' })
+      notify(confirm.type === 'start' ? '竞赛已开始' : confirm.type === 'stop' ? '竞赛已停止' : '竞赛已删除')
+      setConfirm(null)
+      await loadCompetitions()
+    } catch (error) {
+      notify((error as Error).message)
+    } finally {
+      setExecuting(false)
+    }
+  }
+
+  const active = items.filter(item => item.status !== 'stopped')
+  const running = items.filter(item => item.status === 'running')
+
+  return <div className="admin-page">
+    <StatStrip items={[
+      { label: '进行中', value: running.length, detail: '正在接受学生输入' },
+      { label: '等待开始', value: items.filter(item => item.status === 'waiting').length },
+      { label: '历史竞赛', value: items.filter(item => item.status === 'stopped').length },
+      { label: '当前在线', value: Object.values(participants).reduce((count, list) => count + list.length, 0), detail: '按比赛累计' },
+    ]}/>
+
+    <Panel>
+      <PanelHeader title="创建竞赛" description="选择范文并设置比赛限时、编号与输入辅助"/>
+      <div className="panel-body create-competition">
+        <Field label="竞赛范文">
+          <AppSelect value={articleId} onValueChange={setArticleId} placeholder="选择已选用的文章" items={articles.map(article => ({
+            value: String(article.id),
+            label: article.uploader ? `${article.title} · ${article.uploader}` : article.title,
+          }))}/>
+        </Field>
+        <Field label="限时（分钟）">
+          <Input type="number" min="1" max="1440" value={minutes} onChange={event => setMinutes(event.target.value)}/>
+        </Field>
+        <Field label="比赛编号" hint="留空自动生成">
+          <Input className="mono" maxLength={20} value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="自动生成"/>
+        </Field>
+        <label className="competition-option">
+          <input type="checkbox" checked={pinyinEnabled} onChange={event => setPinyinEnabled(event.target.checked)}/>
+          <span><strong>拼音提示</strong><small>向学生显示</small></span>
+        </label>
+        <Button onClick={create} disabled={!articleId || creating}>
+          <Plus size={14}/>{creating ? '正在创建…' : '创建竞赛'}
+        </Button>
+      </div>
+    </Panel>
+
+    <Panel>
+      <PanelHeader title="活跃竞赛" description="学生可通过比赛编号进入等待室"/>
+      <div className="table-wrap">{active.length ? <table className="data-table">
+        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>限时</th><th>已进入</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
+        <tbody>{active.map(comp => <tr key={comp.id}>
+          <td className="td-title">{comp.article_title}</td>
+          <td><button className="code-copy mono" onClick={() => navigator.clipboard.writeText(comp.access_code).then(() => notify('比赛编号已复制'))}>{comp.access_code}<Clipboard size={12}/></button></td>
+          <td><Badge tone={comp.status === 'running' ? 'success' : 'warning'}>{comp.status === 'running' ? '进行中' : '等待开始'}</Badge></td>
+          <td><Badge tone={comp.pinyin_enabled ? 'blue' : 'neutral'}>{comp.pinyin_enabled ? '开启' : '关闭'}</Badge></td>
+          <td>{Math.round(comp.time_limit / 60)} 分钟</td>
+          <td><button className="link-button" onClick={() => setShowPeople(comp)}>{participants[comp.id]?.length || 0} 人</button></td>
+          <td><div className="row-actions">
+            {comp.status === 'waiting'
+              ? <Button size="sm" onClick={() => setConfirm({ type: 'start', comp })}><Play size={13}/>开始</Button>
+              : <Button size="sm" variant="danger" onClick={() => setConfirm({ type: 'stop', comp })}><Square size={13}/>停止</Button>}
+            <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)} title="查看成绩"><BarChart3 size={14}/></Button>
+          </div></td>
+        </tr>)}</tbody>
+      </table> : <Empty title="没有活跃竞赛" description="在上方创建一场新竞赛"/>}</div>
+    </Panel>
+
+    <Panel>
+      <PanelHeader title="竞赛历史" description="所有已创建竞赛及其状态"/>
+      <div className="table-wrap">{items.length ? <table className="data-table">
+        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>创建时间</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
+        <tbody>{items.map(comp => <tr key={comp.id}>
+          <td className="td-title">{comp.article_title}</td><td className="mono">{comp.access_code}</td>
+          <td><Badge tone={comp.status === 'running' ? 'success' : comp.status === 'waiting' ? 'warning' : 'neutral'}>{comp.status === 'running' ? '进行中' : comp.status === 'waiting' ? '等待开始' : '已结束'}</Badge></td>
+          <td>{comp.pinyin_enabled ? '开启' : '关闭'}</td><td>{comp.created_at}</td>
+          <td><div className="row-actions">
+            <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)}><BarChart3 size={14}/></Button>
+            <Button size="icon" variant="ghost" disabled={comp.status === 'running'} onClick={() => setConfirm({ type: 'delete', comp })}><Trash2 size={14}/></Button>
+          </div></td>
+        </tr>)}</tbody>
+      </table> : <Empty title="暂无竞赛记录"/>}</div>
+    </Panel>
+
+    <Modal open={!!showPeople} onOpenChange={value => !value && setShowPeople(null)} title="已进入比赛的学生" description={`${showPeople?.article_title || ''} · 实时更新`}>
+      <div className="table-wrap"><table className="data-table"><thead><tr><th>学号</th><th>姓名</th></tr></thead><tbody>
+        {(participants[showPeople?.id || 0] || []).map(person => <tr key={person.studentId}><td>{person.studentId}</td><td>{person.studentName}</td></tr>)}
+      </tbody></table>{!participants[showPeople?.id || 0]?.length && <Empty title="还没有学生进入"/>}</div>
+    </Modal>
+
+    <Modal open={!!confirm} onOpenChange={value => !value && setConfirm(null)} title={confirm?.type === 'start' ? '开始竞赛' : confirm?.type === 'stop' ? '停止竞赛' : '删除竞赛'} description={confirm?.comp.article_title} footer={<>
+      <Button variant="outline" onClick={() => setConfirm(null)} disabled={executing}>取消</Button>
+      <Button variant={confirm?.type === 'stop' || confirm?.type === 'delete' ? 'danger' : 'default'} onClick={execute} disabled={executing}>{executing ? '处理中…' : '确认'}</Button>
+    </>}>
+      <p style={{ fontSize: 13 }}>{confirm?.type === 'start' ? '发令后所有等待中的学生会立即开始计时。' : confirm?.type === 'stop' ? '停止后所有学生会立即结束并提交成绩。' : '竞赛及其全部成绩会被永久删除。'}</p>
+    </Modal>
+  </div>
+}

@@ -73,6 +73,7 @@ func (a *app) createCompetition(w http.ResponseWriter, r *http.Request) {
 		ArticleID     int64  `json:"articleId"`
 		TimeLimit     int64  `json:"timeLimit"`
 		CustomCode    string `json:"customCode"`
+		RequestID     string `json:"requestId"`
 		PinyinEnabled *bool  `json:"pinyinEnabled"`
 	}
 	if !decodeJSON(w, r, &in) {
@@ -96,29 +97,84 @@ func (a *app) createCompetition(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "比赛编号应为3至20位")
 		return
 	}
-	for i := 0; code == "" && i < 10; i++ {
-		candidate := randomCode()
-		var n int
-		_ = a.db.QueryRow("SELECT COUNT(*) FROM competitions WHERE access_code=?", candidate).Scan(&n)
-		if n == 0 {
-			code = candidate
-		}
+	in.RequestID = strings.TrimSpace(in.RequestID)
+	if !validRequestID(in.RequestID) {
+		writeError(w, http.StatusBadRequest, "创建请求标识无效")
+		return
+	}
+	if id, existingCode, ok := a.competitionByRequest(u.ID, in.RequestID); ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": true, "id": id, "accessCode": existingCode, "created": false,
+		})
+		return
 	}
 	pinyinEnabled := true
 	if in.PinyinEnabled != nil {
 		pinyinEnabled = *in.PinyinEnabled
 	}
-	res, err := a.db.Exec("INSERT INTO competitions(teacher_id,article_id,access_code,time_limit,pinyin_enabled) VALUES(?,?,?,?,?)", u.ID, in.ArticleID, code, in.TimeLimit, pinyinEnabled)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
-			writeError(w, 400, "该比赛编号已被使用")
-		} else {
-			writeError(w, 500, "创建竞赛失败")
+
+	var id int64
+	for attempt := 0; attempt < 10; attempt++ {
+		if code == "" {
+			code = randomCode()
 		}
+		res, err := a.db.Exec(`INSERT INTO competitions(
+			teacher_id,article_id,access_code,request_id,time_limit,pinyin_enabled
+		) VALUES(?,?,?,?,?,?)`, u.ID, in.ArticleID, code, in.RequestID, in.TimeLimit, pinyinEnabled)
+		if err == nil {
+			id, _ = res.LastInsertId()
+			break
+		}
+		if existingID, existingCode, ok := a.competitionByRequest(u.ID, in.RequestID); ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true, "id": existingID, "accessCode": existingCode, "created": false,
+			})
+			return
+		}
+		if !strings.Contains(err.Error(), "UNIQUE") {
+			writeError(w, http.StatusInternalServerError, "创建竞赛失败")
+			return
+		}
+		if cleanCode(in.CustomCode) != "" {
+			writeError(w, http.StatusConflict, "该比赛编号已被使用")
+			return
+		}
+		code = ""
+	}
+	if id == 0 {
+		writeError(w, http.StatusInternalServerError, "暂时无法生成比赛编号，请重试")
 		return
 	}
-	id, _ := res.LastInsertId()
-	writeJSON(w, 200, map[string]any{"success": true, "id": id, "accessCode": code})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "id": id, "accessCode": code, "created": true,
+	})
+}
+
+func validRequestID(value string) bool {
+	if value == "" { // Keep the API compatible with older open browser tabs.
+		return true
+	}
+	if len(value) < 8 || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') && char != '-' && char != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *app) competitionByRequest(teacherID int64, requestID string) (int64, string, bool) {
+	if requestID == "" {
+		return 0, "", false
+	}
+	var id int64
+	var code string
+	err := a.db.QueryRow(`SELECT id,access_code FROM competitions
+		WHERE teacher_id=? AND request_id=?`, teacherID, requestID).Scan(&id, &code)
+	return id, code, err == nil
 }
 
 func (a *app) ownCompetition(r *http.Request, id int64) (int64, string, bool) {
@@ -136,22 +192,35 @@ func (a *app) startCompetition(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &in) {
 		return
 	}
-	limit, status, ok := a.ownCompetition(r, in.ID)
-	if !ok {
-		writeError(w, 404, "竞赛不存在")
+	u := currentUser(r)
+	res, err := a.db.Exec(`UPDATE competitions
+		SET status='running',started_at=datetime('now'),stopped_at=NULL
+		WHERE id=? AND teacher_id=? AND status='waiting'`, in.ID, u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "开始竞赛失败")
 		return
 	}
-	if status != "waiting" {
-		writeError(w, 400, "竞赛不能重复开始")
+	updated, _ := res.RowsAffected()
+	if updated == 0 {
+		if _, _, ok := a.ownCompetition(r, in.ID); !ok {
+			writeError(w, http.StatusNotFound, "竞赛不存在")
+		} else {
+			writeError(w, http.StatusConflict, "竞赛不能重复开始")
+		}
 		return
 	}
-	_, _ = a.db.Exec("UPDATE competitions SET status='running',started_at=datetime('now'),stopped_at=NULL WHERE id=?", in.ID)
+	var limit int64
+	if err := a.db.QueryRow("SELECT time_limit FROM competitions WHERE id=?", in.ID).Scan(&limit); err != nil {
+		writeError(w, http.StatusInternalServerError, "读取竞赛失败")
+		return
+	}
 	var data map[string]any
-	rows, _ := a.db.Query(compSelect+" WHERE c.id=?", in.ID)
-	items := scanCompetitions(rows)
-	rows.Close()
-	if len(items) > 0 {
-		data = items[0]
+	if rows, err := a.db.Query(compSelect+" WHERE c.id=?", in.ID); err == nil {
+		items := scanCompetitions(rows)
+		rows.Close()
+		if len(items) > 0 {
+			data = items[0]
+		}
 	}
 	a.hub.broadcast(in.ID, "competition:start", data)
 	a.scheduleStop(in.ID, time.Duration(limit+10)*time.Second)

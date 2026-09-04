@@ -1,6 +1,6 @@
 import { BarChart3, BookOpen, ChevronDown, GraduationCap, Keyboard, LockKeyhole, LogOut, Menu, Settings, Trophy, UserCog } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Field, Input, Modal } from '../components/ui'
 import { api, json } from '../lib/api'
@@ -21,7 +21,7 @@ const items=[{id:'articles' as Section,label:'文章管理',icon:BookOpen},{id:'
 export default function Admin(){
   const nav=useNavigate();const[section,setSection]=useState<Section>('articles');const[mobile,setMobile]=useState(false);const[session,setSession]=useState<any>(null);const[toast,setToast]=useState('');const[passwordOpen,setPasswordOpen]=useState(false);const[oldPassword,setOld]=useState('');const[newPassword,setNew]=useState('');const[error,setError]=useState('')
   useEffect(()=>{if(!sessionStorage.getItem('adminToken')){nav('/admin',{replace:true});return}api('/api/session').then(setSession).catch(()=>nav('/admin',{replace:true}))},[nav])
-  function notify(s:string){setToast(s);setTimeout(()=>setToast(''),2800)}
+  const notify=useCallback((s:string)=>{setToast(s);setTimeout(()=>setToast(''),2800)},[])
   function logout(){sessionStorage.clear();nav('/admin')}
   async function changePassword(){setError('');try{await api('/api/teacher/password',json('PUT',{oldPassword,newPassword}));setPasswordOpen(false);setOld('');setNew('');notify('密码已更新')}catch(e){setError((e as Error).message)}}
   const visible=items.filter(x=>(x.id!=='teachers'||session?.isAdmin)&&(x.id!=='integration'||session?.isAdmin));const current=visible.find(x=>x.id===section)||visible[0]
