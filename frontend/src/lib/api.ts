@@ -1,17 +1,10 @@
 export const token = () => sessionStorage.getItem('adminToken') || ''
 
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
-  if (path === '/api/results' && typeof init.body === 'string') {
-    try {
-      const body = JSON.parse(init.body) as Record<string, unknown>
-      const classId = Number(sessionStorage.getItem('studentClassId') || 0)
-      if (classId > 0 && !body.classId) body.classId = classId
-      init = { ...init, body: JSON.stringify(body) }
-    } catch { /* keep the original request body */ }
-  }
   const headers = new Headers(init.headers)
   if (!(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  if (token()) headers.set('x-admin-token', token())
+  const adminToken = token()
+  if (adminToken) headers.set('x-admin-token', adminToken)
   const res = await fetch(path, { ...init, headers, cache: 'no-store' })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {

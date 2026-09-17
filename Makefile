@@ -20,5 +20,6 @@ version:
 	@cat VERSION
 
 test: check-version
+	cd frontend && npm test
 	cd backend && go test ./...
 	cd frontend && npm run build

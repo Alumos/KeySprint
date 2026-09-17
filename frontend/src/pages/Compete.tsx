@@ -23,8 +23,16 @@ import { useNavigate } from "react-router-dom";
 import { Badge, Button, Modal, StatStrip } from "../components/ui";
 import { api, json, wsURL } from "../lib/api";
 import type { Article, Competition } from "../lib/types";
+import {
+  countInput,
+  deleteBefore,
+  followScrollDelta,
+  insertText,
+  nextPosition,
+  previousPosition,
+  type BufferMap,
+} from "../lib/typing";
 
-type BufferMap = Record<number, string>;
 type Session = {
   buffer: BufferMap;
   cursor: number;
@@ -112,12 +120,8 @@ export default function Compete() {
     if (!element || !panel) return;
 
     const content = typingContent.current;
-    const current = content?.querySelector<HTMLElement>(
-      `.char-cell[data-char-index="${cursorRef.current}"]`,
-    );
-    const cells = content?.querySelectorAll<HTMLElement>(".char-cell");
-    const fallback = cells?.length ? cells[cells.length - 1] : undefined;
-    const anchor = current || fallback || content || panel;
+    const current = content?.children.item(cursorRef.current);
+    const anchor = current || content?.lastElementChild || content || panel;
     const panelRect = panel.getBoundingClientRect();
     const anchorRect = anchor.getBoundingClientRect();
 
@@ -144,6 +148,19 @@ export default function Compete() {
   const statusRef = useRef(status);
   statusRef.current = status;
   useLayoutEffect(() => {
+    if (status === "running" && focused) {
+      const content = typingContent.current;
+      const active = content?.children.item(cursor) || content?.lastElementChild;
+      if (active) {
+        const rect = active.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const top = viewport?.offsetTop || 0;
+        const bottom = top + (viewport?.height || window.innerHeight);
+        const headerBottom = document.querySelector(".race-topbar")?.getBoundingClientRect().bottom || 0;
+        const delta = followScrollDelta(rect.top, rect.bottom, Math.max(top, headerBottom), bottom);
+        if (delta) window.scrollBy({ top: delta, behavior: "instant" });
+      }
+    }
     positionImeInput();
   }, [article, cursor, focused, positionImeInput, status]);
   useEffect(() => {
@@ -169,41 +186,23 @@ export default function Compete() {
     };
   }, [positionImeInput]);
   const chars = useMemo(() => Array.from(article?.content || ""), [article]);
-  const typeable = useMemo(
-    () => chars.map((ch, i) => (ch === "\n" ? -1 : i)).filter((x) => x >= 0),
-    [chars],
-  );
-  const typedCount = Object.keys(buffer).length;
-  const correct = Object.entries(buffer).filter(
-    ([i, ch]) => chars[Number(i)] === ch,
-  ).length;
+  const totalCount = useMemo(() => chars.reduce((n, ch) => n + Number(ch !== "\n"), 0), [chars]);
+  const { typedCount, correct } = useMemo(() => countInput(chars, buffer), [chars, buffer]);
   const accuracy = typedCount ? correct / typedCount : 1;
   const speed = elapsed ? correct / (elapsed / 60) : 0;
-  const progress = typeable.length ? (typedCount / typeable.length) * 100 : 0;
+  const progress = totalCount ? (typedCount / totalCount) * 100 : 0;
   const key = comp ? `keysprint_session_${comp.id}_${studentId}` : "";
   const py = useMemo(
     () =>
-      chars.map((ch) =>
+      comp?.pinyin_enabled === false ? [] : chars.map((ch) =>
         ch === "\n" || punctuation.test(ch)
           ? ""
           : pinyin(ch, { toneType: "symbol" }),
       ),
-    [chars],
+    [chars, comp?.pinyin_enabled],
   );
-  const next = useCallback(
-    (pos: number) => {
-      while (pos < chars.length && chars[pos] === "\n") pos++;
-      return pos;
-    },
-    [chars],
-  );
-  const prev = useCallback(
-    (pos: number) => {
-      while (pos >= 0 && chars[pos] === "\n") pos--;
-      return pos;
-    },
-    [chars],
-  );
+  const next = useCallback((pos: number) => nextPosition(chars, pos), [chars]);
+  const prev = useCallback((pos: number) => previousPosition(chars, pos), [chars]);
   const persist = useCallback(
     (patch: Partial<Session> = {}) => {
       if (!key) return;
@@ -215,7 +214,9 @@ export default function Compete() {
         submitted: submitted.current,
         ...patch,
       };
-      localStorage.setItem(key, JSON.stringify(current));
+      try {
+        localStorage.setItem(key, JSON.stringify(current));
+      } catch { /* Unavailable storage must not interrupt typing or submission. */ }
     },
     [key, buffer, cursor, anchor, late],
   );
@@ -225,9 +226,10 @@ export default function Compete() {
       setArticle(a);
       setComp(c);
       const storageKey = `keysprint_session_${c.id}_${studentId}`;
-      const saved = JSON.parse(
-        localStorage.getItem(storageKey) || "null",
-      ) as Session | null;
+      let saved: Session | null = null;
+      try {
+        saved = JSON.parse(localStorage.getItem(storageKey) || "null") as Session | null;
+      } catch { /* A corrupt or unavailable cache starts a fresh session. */ }
       if (saved) {
         const restored = saved.buffer || {};
         bufferRef.current = restored;
@@ -243,6 +245,8 @@ export default function Compete() {
       } else {
         bufferRef.current = {};
         setBuffer({});
+        setCursor(nextPosition(Array.from(a.content), 0));
+        submitted.current = false;
         setAnchor(Date.now());
         setLate(isLate);
         setStatus("running");
@@ -256,7 +260,8 @@ export default function Compete() {
     submitted.current = true;
     setStatus("finished");
     setResultOpen(true);
-    persist({ submitted: true });
+    persist({ submitted: true, buffer: bufferRef.current, cursor: cursorRef.current });
+    const { typedCount, correct } = countInput(chars, bufferRef.current);
     if (late || typedCount === 0) {
       setSubmitState("idle");
       return;
@@ -265,6 +270,7 @@ export default function Compete() {
       competitionId: comp!.id,
       studentId,
       studentName,
+      classId: Number(sessionStorage.getItem("studentClassId") || 0) || undefined,
       correctCount: correct,
       typedCount,
       duration: Math.min(
@@ -284,13 +290,12 @@ export default function Compete() {
     setSubmitState("error");
   }, [
     anchor,
+    chars,
     comp,
-    correct,
     late,
     persist,
     studentId,
     studentName,
-    typedCount,
   ]);
   finishRef.current = () => {
     void finish();
@@ -324,7 +329,9 @@ export default function Compete() {
     if (!comp) return;
     const competitionId = comp.id;
     let stopped = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     function connect() {
+      if (stopped) return;
       const ws = new WebSocket(wsURL());
       socket.current = ws;
       ws.onopen = () => {
@@ -340,7 +347,7 @@ export default function Compete() {
       };
       ws.onclose = () => {
         setConnected(false);
-        if (!stopped) setTimeout(connect, 1500);
+        if (!stopped) reconnectTimer = setTimeout(connect, 1500);
       };
       ws.onmessage = (e) => {
         const msg = JSON.parse(e.data);
@@ -352,6 +359,7 @@ export default function Compete() {
     connect();
     return () => {
       stopped = true;
+      clearTimeout(reconnectTimer);
       socket.current?.close();
     };
   }, [comp?.id, loadArticle, studentId, studentName]);
@@ -381,56 +389,39 @@ export default function Compete() {
         setRemaining(global);
       } else {
         setRemaining(Math.max(0, comp.time_limit - raw));
-        if (raw >= comp.time_limit) finish();
+        if (raw >= comp.time_limit) finishRef.current();
       }
     };
     tick();
     const t = setInterval(tick, 250);
     return () => clearInterval(t);
-  }, [anchor, comp, finish, late, status]);
+  }, [anchor, comp, late, status]);
   useEffect(() => {
     if (status === "running") persist();
   }, [buffer, cursor, persist, status]);
+  // Finish after React commits the final input, so both the modal and payload
+  // include the last character (also safe with StrictMode updater replay).
+  useEffect(() => {
+    if (status === "running" && totalCount > 0 && typedCount === totalCount) finishRef.current();
+  }, [status, totalCount, typedCount]);
+  function applyEdit(edit: { buffer: BufferMap; cursor: number }) {
+    bufferRef.current = edit.buffer;
+    cursorRef.current = edit.cursor;
+    setBuffer(edit.buffer);
+    setCursor(edit.cursor);
+  }
   function insert(text: string) {
-    if (status !== "running") return;
-    setBuffer((old) => {
-      const b = { ...old };
-      let pos = cursor;
-      for (const ch of Array.from(text)) {
-        pos = next(pos);
-        if (pos >= chars.length) break;
-        const rest = typeable.filter((i) => i >= pos);
-        if (b[pos] !== undefined) {
-          for (let i = rest.length - 1; i > 0; i--) b[rest[i]] = b[rest[i - 1]];
-        }
-        b[pos] = ch;
-        pos = next(pos + 1);
-      }
-      bufferRef.current = b;
-      setCursor(pos);
-      if (typeable.every((i) => b[i] !== undefined)) setTimeout(finish, 0);
-      return b;
-    });
+    if (status !== "running" || submitted.current) return;
+    applyEdit(insertText(chars, bufferRef.current, cursorRef.current, text));
   }
   function backspace() {
-    if (status !== "running") return;
-    const pos = prev(cursor - 1);
-    if (pos < 0) return;
-    setBuffer((old) => {
-      const b = { ...old };
-      const rest = typeable.filter((i) => i >= pos);
-      if (b[cursor] !== undefined) {
-        for (let i = 0; i < rest.length - 1; i++) b[rest[i]] = b[rest[i + 1]];
-        delete b[rest[rest.length - 1]];
-      } else delete b[pos];
-      bufferRef.current = b;
-      return b;
-    });
-    setCursor(pos);
+    if (status !== "running" || submitted.current) return;
+    applyEdit(deleteBefore(chars, bufferRef.current, cursorRef.current));
   }
   function furthest() {
-    const used = Object.keys(bufferRef.current).map(Number);
-    return next(used.length ? Math.max(...used) + 1 : 0);
+    let last = -1;
+    for (const index in bufferRef.current) last = Math.max(last, Number(index));
+    return next(last + 1);
   }
   const selectChar = useCallback(
     (index: number) => {
@@ -443,6 +434,20 @@ export default function Compete() {
       focusInput();
     },
     [focusInput, next],
+  );
+  const articleCells = useMemo(
+    () => chars.map((ch, i) => ch === "\n" ? <br key={i} /> : (
+      <CharCell
+        key={i}
+        index={i}
+        char={ch}
+        pinyinText={py[i] || ""}
+        value={buffer[i]}
+        caret={cursor === i && focused && status === "running"}
+        onSelect={selectChar}
+      />
+    )),
+    [chars, py, buffer, cursor, focused, status, selectChar],
   );
   function keydown(e: React.KeyboardEvent) {
     if (composing.current) return;
@@ -528,7 +533,7 @@ export default function Compete() {
             {
               label: "完成进度",
               value: `${progress.toFixed(0)}%`,
-              detail: `范文共 ${typeable.length} 字`,
+              detail: `范文共 ${totalCount} 字`,
             },
           ]}
         />
@@ -574,21 +579,7 @@ export default function Compete() {
               ref={typingContent}
               className={`typing-content ${comp?.pinyin_enabled === false ? "without-pinyin" : ""}`}
             >
-              {chars.map((ch, i) =>
-                ch === "\n" ? (
-                  <br key={i} />
-                ) : (
-                  <CharCell
-                    key={i}
-                    index={i}
-                    char={ch}
-                    pinyinText={comp?.pinyin_enabled === false ? "" : py[i]}
-                    value={buffer[i]}
-                    caret={cursor === i && focused && status === "running"}
-                    onSelect={selectChar}
-                  />
-                ),
-              )}
+              {articleCells}
             </div>
           )}
           <input

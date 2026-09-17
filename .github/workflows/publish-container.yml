@@ -41,9 +41,9 @@ jobs:
         working-directory: backend
         run: go test ./...
 
-      - name: Build frontend
+      - name: Test and build frontend
         working-directory: frontend
-        run: npm ci --no-audit --no-fund && npm run build
+        run: npm ci --no-audit --no-fund && npm test && npm run build
 
   image:
     needs: verify

@@ -20,6 +20,8 @@
 
 KeySprint（键跃）是一套可自托管的中文输入课堂工具。教师选择范文、创建限时竞赛并统一发令，学生通过比赛编号进入赛场，系统实时统计速度、正确率和完成进度，赛后生成个人与班级分析。
 
+长文章输入时，页面会在当前行接近屏幕边缘时自动滚动，退格和返回前文修改也会跟随光标，并为输入法候选框预留空间。
+
 成绩口径保持一致：正确率为“正确字数 ÷ 已输入字数”，速度为“正确字数 ÷ 实际用时（分钟）”。范文总篇幅只用于显示完成进度，不参与正确率计算。
 
 ## ✦ 核心能力
@@ -111,7 +113,7 @@ docker compose -f compose.vps.yaml ps
 [GitHub Actions](.github/workflows/publish-container.yml) 会执行：
 
 1. 运行 Go 后端测试；
-2. 安装锁定的前端依赖并执行 TypeScript/Vite 生产构建；
+2. 安装锁定的前端依赖，运行输入逻辑回归测试并执行 TypeScript/Vite 生产构建；
 3. 构建双架构极简镜像；
 4. 发布到 `ghcr.io/alumos/keysprint`；
 5. 为镜像附加 SBOM 与 provenance；
@@ -123,7 +125,7 @@ docker compose -f compose.vps.yaml ps
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v1.2.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v1.5.0`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；
