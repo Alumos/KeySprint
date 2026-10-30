@@ -4,6 +4,12 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 ## [Unreleased]
 
+### Planned
+
+- 后续变更先进入本节，发布时再归入对应版本。
+
+## [1.6.0] - 2026-10-31
+
 ### Added
 
 - 竞赛创建支持「文本选项」多选列表：拼音提示、去除符号、符号统一、去除换行；按竞赛以 JSON 持久化，旧数据与旧客户端继续兼容。
@@ -111,7 +117,9 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.6.0
+[1.5.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.4.0
 [1.3.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.3.0
 [1.2.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.2.0
