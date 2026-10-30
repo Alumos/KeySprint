@@ -1,7 +1,9 @@
 import * as Dialog from '@radix-ui/react-dialog'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Select from '@radix-ui/react-select'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
+import { TEXT_OPTION_ITEMS, type TextOptions } from '../lib/textOptions'
 
 export function Button({variant='default',size='default',className='',...props}:ButtonHTMLAttributes<HTMLButtonElement>&{variant?:'default'|'outline'|'ghost'|'danger'|'secondary';size?:'default'|'sm'|'icon'}){
   return <button className={`button button-${variant} button-${size} ${className}`} {...props}/>
@@ -22,3 +24,7 @@ export function AppSelect({value,onValueChange,placeholder='请选择',items,dis
 }
 
 export function StatStrip({items}:{items:{label:string;value:ReactNode;detail?:string}[]}){return <div className="stat-strip">{items.map(x=><div className="stat-cell" key={x.label}><span>{x.label}</span><strong>{x.value}</strong>{x.detail&&<small>{x.detail}</small>}</div>)}</div>}
+
+export function OptionsMenu({value,onChange,label='文本选项'}:{value:TextOptions;onChange:(next:TextOptions)=>void;label?:string}){
+  return <DropdownMenu.Root><DropdownMenu.Trigger asChild><Button variant="outline">{label}<ChevronDown size={14}/></Button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content className="dropdown-content options-menu" align="start" sideOffset={5}>{TEXT_OPTION_ITEMS.map(item=><DropdownMenu.CheckboxItem className="options-menu-item" key={item.key} checked={value[item.key]} onCheckedChange={checked=>onChange({...value,[item.key]:checked===true} as TextOptions)} onSelect={event=>event.preventDefault()}><span className="options-check">{value[item.key]&&<Check size={13}/>}</span><span className="options-copy"><strong>{item.label}</strong><small>{item.hint}</small></span></DropdownMenu.CheckboxItem>)}</DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>
+}

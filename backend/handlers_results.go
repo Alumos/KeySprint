@@ -7,7 +7,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
+
+// resultSubmitGrace lets the final keystrokes of a race land after the timer
+// stopped the competition, while still rejecting edits made later.
+const resultSubmitGrace = 3 * time.Minute
 
 const resultSelect = `SELECT r.id,r.competition_id,r.student_id,r.student_name,r.class_id,
 	COALESCE(cl.name,''),r.correct_count,r.typed_count,r.duration,r.created_at,c.access_code,a.title
@@ -79,6 +84,7 @@ func (a *app) submitResult(w http.ResponseWriter, r *http.Request) {
 		Typed         *int64 `json:"typedCount"`
 		LegacyTotal   *int64 `json:"totalCount"`
 		Duration      int64  `json:"duration"`
+		AccessCode    string `json:"accessCode"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -104,19 +110,32 @@ func (a *app) submitResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var teacherID, limit, articleLength int64
-	var status string
-	var started sql.NullString
-	err := a.db.QueryRow(`SELECT c.teacher_id,c.time_limit,c.status,c.started_at,
+	var status, accessCode string
+	var started, stopped sql.NullString
+	err := a.db.QueryRow(`SELECT c.teacher_id,c.time_limit,c.status,c.started_at,c.access_code,c.stopped_at,
 		LENGTH(REPLACE(a.content,char(10),''))
 		FROM competitions c JOIN articles a ON a.id=c.article_id WHERE c.id=?`, in.CompetitionID).
-		Scan(&teacherID, &limit, &status, &started, &articleLength)
+		Scan(&teacherID, &limit, &status, &started, &accessCode, &stopped, &articleLength)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "竞赛不存在")
+		return
+	}
+	// The access code doubles as the submission credential: it stops anybody
+	// from forging scores by walking the sequential competition IDs.
+	if cleanCode(in.AccessCode) != cleanCode(accessCode) {
+		writeError(w, http.StatusForbidden, "比赛编号不正确，请刷新比赛页面")
 		return
 	}
 	if !started.Valid || status == "waiting" {
 		writeError(w, http.StatusConflict, "竞赛尚未开始")
 		return
+	}
+	if status == "stopped" {
+		stoppedAt, parseErr := time.Parse("2006-01-02 15:04:05", stopped.String)
+		if parseErr != nil || time.Since(stoppedAt.UTC()) > resultSubmitGrace {
+			writeError(w, http.StatusConflict, "竞赛已结束，成绩不再接收")
+			return
+		}
 	}
 	if typedCount > articleLength {
 		writeError(w, http.StatusBadRequest, "已输入字数超出范文长度")
@@ -157,7 +176,7 @@ func (a *app) submitResult(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存成绩失败")
 		return
 	}
-	a.hub.broadcast(in.CompetitionID, "result:update", map[string]any{
+	a.hub.broadcastTeachers(in.CompetitionID, "result:update", map[string]any{
 		"competitionId": in.CompetitionID,
 		"studentId":     in.StudentID,
 		"studentName":   in.StudentName,

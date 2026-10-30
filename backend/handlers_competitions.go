@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const compSelect = `SELECT c.id,c.teacher_id,c.article_id,c.access_code,c.status,c.time_limit,c.pinyin_enabled,c.started_at,c.stopped_at,c.created_at,a.title FROM competitions c JOIN articles a ON a.id=c.article_id`
+const compSelect = `SELECT c.id,c.teacher_id,c.article_id,c.access_code,c.status,c.time_limit,c.pinyin_enabled,c.started_at,c.stopped_at,c.created_at,a.title,c.text_options FROM competitions c JOIN articles a ON a.id=c.article_id`
 
 func scanCompetitions(rows *sql.Rows) []map[string]any {
 	out := []map[string]any{}
@@ -16,9 +16,10 @@ func scanCompetitions(rows *sql.Rows) []map[string]any {
 		var id, teacher, article, limit int64
 		var pinyinEnabled int
 		var code, status, created, title string
-		var started, stopped sql.NullString
-		_ = rows.Scan(&id, &teacher, &article, &code, &status, &limit, &pinyinEnabled, &started, &stopped, &created, &title)
-		out = append(out, map[string]any{"id": id, "teacher_id": teacher, "article_id": article, "access_code": code, "status": status, "time_limit": limit, "pinyin_enabled": pinyinEnabled == 1, "started_at": started.String, "stopped_at": stopped.String, "created_at": created, "article_title": title})
+		var started, stopped, textRaw sql.NullString
+		_ = rows.Scan(&id, &teacher, &article, &code, &status, &limit, &pinyinEnabled, &started, &stopped, &created, &title, &textRaw)
+		options := parseTextOptions(textRaw.String, pinyinEnabled)
+		out = append(out, map[string]any{"id": id, "teacher_id": teacher, "article_id": article, "access_code": code, "status": status, "time_limit": limit, "pinyin_enabled": options.Pinyin, "text_options": options, "started_at": started.String, "stopped_at": stopped.String, "created_at": created, "article_title": title})
 	}
 	return out
 }
@@ -49,12 +50,13 @@ func (a *app) competitionByCode(w http.ResponseWriter, r *http.Request) {
 	var id, teacher, article, limit int64
 	var pinyinEnabled int
 	var code, status, created, title string
-	var started, stopped sql.NullString
-	if row.Scan(&id, &teacher, &article, &code, &status, &limit, &pinyinEnabled, &started, &stopped, &created, &title) != nil {
+	var started, stopped, textRaw sql.NullString
+	if row.Scan(&id, &teacher, &article, &code, &status, &limit, &pinyinEnabled, &started, &stopped, &created, &title, &textRaw) != nil {
 		writeError(w, 404, "比赛不存在或已结束")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "teacher_id": teacher, "article_id": article, "access_code": code, "status": status, "time_limit": limit, "pinyin_enabled": pinyinEnabled == 1, "started_at": started.String, "stopped_at": stopped.String, "created_at": created, "article_title": title})
+	options := parseTextOptions(textRaw.String, pinyinEnabled)
+	writeJSON(w, 200, map[string]any{"id": id, "teacher_id": teacher, "article_id": article, "access_code": code, "status": status, "time_limit": limit, "pinyin_enabled": options.Pinyin, "text_options": options, "started_at": started.String, "stopped_at": stopped.String, "created_at": created, "article_title": title})
 }
 
 func randomCode() string {
@@ -70,11 +72,12 @@ func randomCode() string {
 func (a *app) createCompetition(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	var in struct {
-		ArticleID     int64  `json:"articleId"`
-		TimeLimit     int64  `json:"timeLimit"`
-		CustomCode    string `json:"customCode"`
-		RequestID     string `json:"requestId"`
-		PinyinEnabled *bool  `json:"pinyinEnabled"`
+		ArticleID     int64        `json:"articleId"`
+		TimeLimit     int64        `json:"timeLimit"`
+		CustomCode    string       `json:"customCode"`
+		RequestID     string       `json:"requestId"`
+		PinyinEnabled *bool        `json:"pinyinEnabled"`
+		TextOptions   *textOptions `json:"textOptions"`
 	}
 	if !decodeJSON(w, r, &in) {
 		return
@@ -108,9 +111,13 @@ func (a *app) createCompetition(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	pinyinEnabled := true
-	if in.PinyinEnabled != nil {
-		pinyinEnabled = *in.PinyinEnabled
+	// textOptions is the current contract; pinyinEnabled stays supported for
+	// pages opened before the switch to a multi-option list.
+	options := defaultTextOptions()
+	if in.TextOptions != nil {
+		options = *in.TextOptions
+	} else if in.PinyinEnabled != nil {
+		options.Pinyin = *in.PinyinEnabled
 	}
 
 	var id int64
@@ -119,8 +126,8 @@ func (a *app) createCompetition(w http.ResponseWriter, r *http.Request) {
 			code = randomCode()
 		}
 		res, err := a.db.Exec(`INSERT INTO competitions(
-			teacher_id,article_id,access_code,request_id,time_limit,pinyin_enabled
-		) VALUES(?,?,?,?,?,?)`, u.ID, in.ArticleID, code, in.RequestID, in.TimeLimit, pinyinEnabled)
+			teacher_id,article_id,access_code,request_id,time_limit,pinyin_enabled,text_options
+		) VALUES(?,?,?,?,?,?,?)`, u.ID, in.ArticleID, code, nullableString(in.RequestID), in.TimeLimit, options.Pinyin, options.encode())
 		if err == nil {
 			id, _ = res.LastInsertId()
 			break

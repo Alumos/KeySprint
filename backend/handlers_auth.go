@@ -23,12 +23,6 @@ func (a *app) setupInit(w http.ResponseWriter, r *http.Request) {
 	}
 	in.TeacherUsername = strings.TrimSpace(in.TeacherUsername)
 	in.TeacherDisplayName = strings.TrimSpace(in.TeacherDisplayName)
-	var n int
-	_ = a.db.QueryRow("SELECT COUNT(*) FROM teachers").Scan(&n)
-	if n > 0 {
-		writeError(w, 409, "系统已经初始化")
-		return
-	}
 	if len(in.TeacherUsername) < 2 || len(in.TeacherPassword) < 6 {
 		writeError(w, 400, "用户名至少2位，密码至少6位")
 		return
@@ -41,9 +35,17 @@ func (a *app) setupInit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "初始化失败")
 		return
 	}
-	_, err = a.db.Exec("INSERT INTO teachers(username,password_hash,display_name,is_admin) VALUES(?,?,?,1)", in.TeacherUsername, h, in.TeacherDisplayName)
+	// A conditional insert is evaluated atomically by SQLite, so two concurrent
+	// first-run requests cannot both create an administrator.
+	res, err := a.db.Exec(`INSERT INTO teachers(username,password_hash,display_name,is_admin)
+		SELECT ?,?,?,1 WHERE NOT EXISTS (SELECT 1 FROM teachers)`,
+		in.TeacherUsername, h, in.TeacherDisplayName)
 	if err != nil {
 		writeError(w, 400, "用户名已存在")
+		return
+	}
+	if created, _ := res.RowsAffected(); created == 0 {
+		writeError(w, 409, "系统已经初始化")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"success": true})
@@ -120,7 +122,11 @@ func (a *app) createTeacher(w http.ResponseWriter, r *http.Request) {
 	if in.DisplayName == "" {
 		in.DisplayName = in.Username
 	}
-	h, _ := hashPassword(in.Password)
+	h, err := hashPassword(in.Password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "创建失败")
+		return
+	}
 	res, err := a.db.Exec("INSERT INTO teachers(username,password_hash,display_name) VALUES(?,?,?)", strings.TrimSpace(in.Username), h, strings.TrimSpace(in.DisplayName))
 	if err != nil {
 		writeError(w, 400, "用户名已存在")
@@ -149,7 +155,10 @@ func (a *app) deleteTeacher(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "不能删除系统管理员")
 		return
 	}
-	_, _ = a.db.Exec("DELETE FROM teachers WHERE id=?", id)
+	if _, err := a.db.Exec("DELETE FROM teachers WHERE id=?", id); err != nil {
+		writeError(w, http.StatusInternalServerError, "删除教师失败")
+		return
+	}
 	writeJSON(w, 200, map[string]any{"success": true})
 }
 
@@ -172,9 +181,28 @@ func (a *app) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "原密码错误")
 		return
 	}
-	nh, _ := hashPassword(in.NewPassword)
-	_, _ = a.db.Exec("UPDATE teachers SET password_hash=? WHERE id=?", nh, u.ID)
+	nh, err := hashPassword(in.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "修改密码失败")
+		return
+	}
+	if _, err = a.db.Exec("UPDATE teachers SET password_hash=? WHERE id=?", nh, u.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "修改密码失败")
+		return
+	}
 	writeJSON(w, 200, map[string]any{"success": true})
+}
+
+// createWebsocketTicket issues the short-lived credential used by the teacher
+// WebSocket. It keeps the seven day session token out of WebSocket URLs, which
+// proxies and CDN logs tend to record.
+func (a *app) createWebsocketTicket(w http.ResponseWriter, r *http.Request) {
+	ticket, err := a.signWebsocketTicket(currentUser(r).ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "生成连接凭证失败")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ticket": ticket, "expires_in": int(websocketTTL.Seconds())})
 }
 
 func (a *app) resetPassword(w http.ResponseWriter, r *http.Request) {
@@ -191,8 +219,16 @@ func (a *app) resetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "新密码至少6位")
 		return
 	}
-	nh, _ := hashPassword(in.NewPassword)
-	res, _ := a.db.Exec("UPDATE teachers SET password_hash=? WHERE id=?", nh, pathInt(r, "id"))
+	nh, err := hashPassword(in.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "重置密码失败")
+		return
+	}
+	res, err := a.db.Exec("UPDATE teachers SET password_hash=? WHERE id=?", nh, pathInt(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "重置密码失败")
+		return
+	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		writeError(w, 404, "教师不存在")

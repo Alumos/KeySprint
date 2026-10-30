@@ -30,10 +30,19 @@ func (a *app) getArticles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) getPublicArticle(w http.ResponseWriter, r *http.Request) {
+	// Students read the article through their competition code, which keeps the
+	// shared library from being scraped by walking article IDs.
+	code := cleanCode(r.URL.Query().Get("code"))
+	if code == "" {
+		writeError(w, 404, "文章不存在")
+		return
+	}
 	var id int64
 	var title, content, created string
 	var teacher sql.NullInt64
-	err := a.db.QueryRow("SELECT id,teacher_id,title,content,created_at FROM articles WHERE id=?", pathInt(r, "id")).Scan(&id, &teacher, &title, &content, &created)
+	err := a.db.QueryRow(`SELECT a.id,a.teacher_id,a.title,a.content,a.created_at FROM articles a
+		WHERE a.id=? AND EXISTS(SELECT 1 FROM competitions c WHERE c.article_id=a.id AND c.access_code=? AND c.status IN ('waiting','running'))`,
+		pathInt(r, "id"), code).Scan(&id, &teacher, &title, &content, &created)
 	if err != nil {
 		writeError(w, 404, "文章不存在")
 		return

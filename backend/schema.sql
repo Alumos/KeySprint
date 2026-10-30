@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS competitions (
   status TEXT NOT NULL DEFAULT 'waiting' CHECK(status IN ('waiting','running','stopped')),
   time_limit INTEGER NOT NULL DEFAULT 300 CHECK(time_limit BETWEEN 10 AND 86400),
   pinyin_enabled INTEGER NOT NULL DEFAULT 1,
+  text_options TEXT NOT NULL DEFAULT '',
   started_at TEXT,
   stopped_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

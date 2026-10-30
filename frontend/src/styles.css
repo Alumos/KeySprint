@@ -44,3 +44,16 @@ body { font-size: var(--text-md); }
 .auth-brand p, .article-preview { font-size: var(--text-base); }
 .site-footer { font-size: var(--text-sm); }
 .mono { font-family: var(--app-font-kai); font-variant-numeric: tabular-nums; }
+
+/* Text options menu (competition create form) */
+.competition-options{align-self:end;margin-bottom:20px}
+.competition-options .button{width:100%;justify-content:space-between}
+.options-menu{width:248px;padding:5px}
+.options-menu-item{height:46px;border-radius:5px;padding:0 9px;display:grid;grid-template-columns:16px 1fr;gap:9px;align-items:center;outline:none;cursor:pointer}
+.options-menu-item[data-highlighted]{background:#f4f4f5}
+.options-check{width:16px;height:16px;border:1px solid #d4d4d8;border-radius:4px;background:#fff;display:grid;place-items:center;color:#fff}
+.options-menu-item[data-state=checked] .options-check{background:#18181b;border-color:#18181b}
+.options-copy{display:grid;gap:2px;min-width:0}
+.options-copy strong{font-size:12px;font-weight:500;line-height:1.15}
+.options-copy small{font-size:11px;color:#a1a1aa;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:760px){.competition-options{margin-bottom:0}}

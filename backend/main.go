@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -33,6 +35,7 @@ type app struct {
 	classSystemToken   string
 	classSystemTimeout time.Duration
 	classSource        string
+	allowedOrigins     []string
 	classSystemETags   map[string]string
 	configMu           sync.RWMutex
 	timerMu            sync.Mutex
@@ -75,10 +78,23 @@ func main() {
 	if err != nil || timeout <= 0 {
 		timeout = 8 * time.Second
 	}
+	// A published default secret would let anyone mint a teacher token. When
+	// JWT_SECRET is absent, use a random per-process secret instead: logins do
+	// not survive a restart, but they cannot be forged either.
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		random := make([]byte, 32)
+		if _, err := rand.Read(random); err != nil {
+			log.Fatal(err)
+		}
+		jwtSecret = hex.EncodeToString(random)
+		log.Printf("警告：未设置 JWT_SECRET，已生成随机密钥；重启后所有登录会失效")
+	}
 	a := &app{
 		db:                 db,
 		hub:                newHub(),
-		jwtSecret:          getenv("JWT_SECRET", "change-me-in-production"),
+		jwtSecret:          jwtSecret,
+		allowedOrigins:     splitList(os.Getenv("ALLOWED_ORIGINS")),
 		publicDir:          getenv("PUBLIC_DIR", "../frontend/dist"),
 		classSystemURL:     strings.TrimRight(os.Getenv("CLASS_SYSTEM_URL"), "/"),
 		classSystemPath:    getenv("CLASS_SYSTEM_PATH", "/api/integration/classes"),
@@ -109,6 +125,7 @@ func migrateSchema(db *sql.DB) error {
 	// Ignore the duplicate-column error for databases created from the current schema.
 	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN pinyin_enabled INTEGER NOT NULL DEFAULT 1`)
 	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN request_id TEXT`)
+	_, _ = db.Exec(`ALTER TABLE competitions ADD COLUMN text_options TEXT NOT NULL DEFAULT ''`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN remote_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN active INTEGER NOT NULL DEFAULT 1`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','classorbit'))`)
@@ -267,10 +284,11 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/classes/by-teacher/{teacherId}", a.publicClasses)
 	mux.HandleFunc("GET /api/classes/{id}/students/public", a.publicStudents)
 	mux.HandleFunc("POST /api/results", a.submitResult)
-	mux.HandleFunc("GET /ws", a.hub.serve)
+	mux.HandleFunc("GET /ws", a.websocket)
 
 	secured := http.NewServeMux()
 	secured.HandleFunc("GET /api/session", a.session)
+	secured.HandleFunc("POST /api/ws-ticket", a.createWebsocketTicket)
 	secured.HandleFunc("GET /api/teachers", a.getTeachers)
 	secured.HandleFunc("POST /api/teachers", a.createTeacher)
 	secured.HandleFunc("DELETE /api/teachers/{id}", a.deleteTeacher)
@@ -318,10 +336,19 @@ func (a *app) routes() http.Handler {
 		path := filepath.Join(a.publicDir, filepath.Clean(r.URL.Path))
 		if r.URL.Path != "/" {
 			if st, err := os.Stat(path); err == nil && !st.IsDir() {
+				// Vite fingerprints everything under /assets/, so those files can be
+				// cached forever while everything else must revalidate, otherwise a
+				// CDN would keep serving an old index.html after an upgrade.
+				if strings.HasPrefix(r.URL.Path, "/assets/") {
+					w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				} else {
+					w.Header().Set("Cache-Control", "no-cache")
+				}
 				static.ServeHTTP(w, r)
 				return
 			}
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, filepath.Join(a.publicDir, "index.html"))
 	})
 	return noCacheAPI(mux)

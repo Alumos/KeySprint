@@ -154,6 +154,7 @@ make version
 | `CLASS_SYSTEM_PATH` | `/api/integration/classes` | 班级同步接口 |
 | `CLASS_SYSTEM_TOKEN` | 空 | 与 ClassOrbit 完全一致的共享 Bearer 密钥 |
 | `CLASS_SYSTEM_TIMEOUT` | `8s` | 外部请求超时 |
+| `ALLOWED_ORIGINS` | 空 | WebSocket 允许的来源，逗号分隔；CDN 回源 Host 与页面域名不一致时填写 |
 
 ## ✦ ClassOrbit 同步
 
@@ -200,6 +201,8 @@ ADDR=:8080 DB_PATH=./data/keysprint.db PUBLIC_DIR=../frontend/dist go run .
 ```bash
 make test
 ```
+
+架构、数据模型、文本选项语义与 Windows 本地开发（不装 Docker）的完整说明见 [docs/PROJECT-GUIDE.md](docs/PROJECT-GUIDE.md)。
 
 如果需要从源码构建本地镜像：
 

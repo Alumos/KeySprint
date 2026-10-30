@@ -15,7 +15,33 @@ func (a *app) getClasses(w http.ResponseWriter, r *http.Request) {
 	a.classesForTeacher(w, currentUser(r).ID)
 }
 func (a *app) publicClasses(w http.ResponseWriter, r *http.Request) {
-	a.classesForTeacher(w, pathInt(r, "teacherId"))
+	teacher := pathInt(r, "teacherId")
+	if !a.competitionCodeForTeacher(cleanCode(r.URL.Query().Get("code")), teacher) {
+		writeError(w, 404, "班级不存在")
+		return
+	}
+	a.classesForTeacher(w, teacher)
+}
+
+// competitionCodeForTeacher gates the public roster endpoints on a live
+// competition code so class names cannot be enumerated by teacher ID.
+func (a *app) competitionCodeForTeacher(code string, teacherID int64) bool {
+	if code == "" || teacherID < 1 {
+		return false
+	}
+	var count int
+	_ = a.db.QueryRow(`SELECT COUNT(*) FROM competitions WHERE access_code=? AND teacher_id=? AND status IN ('waiting','running')`, code, teacherID).Scan(&count)
+	return count > 0
+}
+
+func (a *app) publicClassAllowed(code string, classID int64) bool {
+	if code == "" || classID < 1 {
+		return false
+	}
+	var count int
+	_ = a.db.QueryRow(`SELECT COUNT(*) FROM competitions c JOIN classes cl ON cl.teacher_id=c.teacher_id
+		WHERE c.access_code=? AND c.status IN ('waiting','running') AND cl.id=? AND cl.active=1`, code, classID).Scan(&count)
+	return count > 0
 }
 func (a *app) classesForTeacher(w http.ResponseWriter, teacher int64) {
 	rows, err := a.db.Query(`SELECT c.id,c.name,c.source,c.created_at,COUNT(s.id) FROM classes c LEFT JOIN class_students s ON s.class_id=c.id WHERE c.teacher_id=? AND c.active=1 GROUP BY c.id ORDER BY c.created_at DESC`, teacher)
@@ -48,7 +74,12 @@ func (a *app) getClassStudents(w http.ResponseWriter, r *http.Request) {
 	a.studentsForClass(w, id, false)
 }
 func (a *app) publicStudents(w http.ResponseWriter, r *http.Request) {
-	a.studentsForClass(w, pathInt(r, "id"), true)
+	id := pathInt(r, "id")
+	if !a.publicClassAllowed(cleanCode(r.URL.Query().Get("code")), id) {
+		writeError(w, 404, "班级不存在")
+		return
+	}
+	a.studentsForClass(w, id, true)
 }
 func (a *app) studentsForClass(w http.ResponseWriter, id int64, public bool) {
 	rows, err := a.db.Query("SELECT s.student_id,s.student_name FROM class_students s JOIN classes c ON c.id=s.class_id WHERE s.class_id=? AND c.active=1 ORDER BY s.student_id", id)

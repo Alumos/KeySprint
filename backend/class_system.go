@@ -165,7 +165,13 @@ func (a *app) fetchRemoteClasses(r *http.Request, username string, conditional b
 	if cachedETag != "" {
 		req.Header.Set("If-None-Match", cachedETag)
 	}
-	res, err := (&http.Client{Timeout: timeout}).Do(req)
+	client := &http.Client{
+		Timeout: timeout,
+		// Never follow redirects: the shared bearer token must not be replayed to
+		// whatever host a redirect happens to point at.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return remoteClassSnapshot{}, fmt.Errorf("ClassOrbit 连接失败")
 	}

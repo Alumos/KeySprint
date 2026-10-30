@@ -47,14 +47,24 @@ export function deleteBefore(chars: readonly string[], old: BufferMap, cursor: n
   return { buffer, cursor: pos };
 }
 
-export function countInput(chars: readonly string[], buffer: BufferMap) {
+export type CharComparator = (expected: string, typed: string) => boolean;
+
+const strictEqual: CharComparator = (expected, typed) => expected === typed;
+
+// The comparator is a parameter so a competition can accept full-width and
+// half-width punctuation as the same answer without changing the buffer shape.
+export function countInput(
+  chars: readonly string[],
+  buffer: BufferMap,
+  equal: CharComparator = strictEqual,
+) {
   let typedCount = 0;
   let correct = 0;
   for (const index in buffer) {
     const value = buffer[index];
     if (value === undefined) continue;
     typedCount++;
-    if (chars[Number(index)] === value) correct++;
+    if (equal(chars[Number(index)], value)) correct++;
   }
   return { typedCount, correct };
 }

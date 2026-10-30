@@ -1,7 +1,8 @@
 import { BarChart3, Clipboard, Play, Plus, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppSelect, Badge, Button, Empty, Field, Input, Modal, Panel, PanelHeader, StatStrip } from '../../components/ui'
+import { AppSelect, Badge, Button, Empty, Field, Input, Modal, OptionsMenu, Panel, PanelHeader, StatStrip } from '../../components/ui'
 import { api, json, wsURL } from '../../lib/api'
+import { DEFAULT_TEXT_OPTIONS, countEnabledOptions, enabledOptionLabels, resolveTextOptions } from '../../lib/textOptions'
 import type { Article, Competition, Student } from '../../lib/types'
 
 type Confirmation = { type: 'start' | 'stop' | 'delete'; comp: Competition }
@@ -17,6 +18,12 @@ function newRequestID() {
   }
 }
 
+// Old rows predate text_options and only carry pinyin_enabled, so every read
+// path normalises the payload before counting or labelling it.
+function optionsOf(comp: Competition) {
+  return resolveTextOptions(comp)
+}
+
 export default function CompetitionsView({
   notify,
   openResults,
@@ -29,7 +36,7 @@ export default function CompetitionsView({
   const [articleId, setArticleId] = useState('')
   const [minutes, setMinutes] = useState('5')
   const [code, setCode] = useState('')
-  const [pinyinEnabled, setPinyinEnabled] = useState(true)
+  const [options, setOptions] = useState(DEFAULT_TEXT_OPTIONS)
   const [participants, setParticipants] = useState<Record<number, Student[]>>({})
   const [showPeople, setShowPeople] = useState<Competition | null>(null)
   const [confirm, setConfirm] = useState<Confirmation | null>(null)
@@ -67,7 +74,7 @@ export default function CompetitionsView({
   // retrying the unchanged form keeps the same ID and returns the first row.
   useEffect(() => {
     requestID.current = newRequestID()
-  }, [articleId, minutes, code, pinyinEnabled])
+  }, [articleId, minutes, code, options])
 
   const watchKey = useMemo(() => items.map(item => item.id).join(','), [items])
   useEffect(() => {
@@ -76,8 +83,20 @@ export default function CompetitionsView({
     let reconnectTimer = 0
     let socket: WebSocket | null = null
 
-    function connect() {
-      const connection = new WebSocket(wsURL())
+    // The socket is ticket-authenticated now: every connect attempt fetches a
+    // fresh one-time ticket first. A failed ticket fetch stays silent and only
+    // retries, so a network blip cannot spam the teacher with toasts.
+    async function connect() {
+      let ticket = ''
+      try {
+        const response = await api<{ ticket: string }>('/api/ws-ticket', { method: 'POST' })
+        ticket = response.ticket
+      } catch {
+        if (!closed) reconnectTimer = window.setTimeout(connect, 1800)
+        return
+      }
+      if (closed) return
+      const connection = new WebSocket(`${wsURL()}?ticket=${encodeURIComponent(ticket)}`)
       socket = connection
       connection.onopen = () => connection.send(JSON.stringify({
         type: 'teacher:watch',
@@ -98,7 +117,7 @@ export default function CompetitionsView({
       }
     }
 
-    connect()
+    void connect()
     return () => {
       closed = true
       window.clearTimeout(reconnectTimer)
@@ -115,7 +134,8 @@ export default function CompetitionsView({
         articleId: Number(articleId),
         timeLimit: Number(minutes) * 60,
         customCode: code,
-        pinyinEnabled,
+        pinyinEnabled: options.pinyin,
+        textOptions: options,
         requestId: requestID.current,
       }))
       notify(response.created === false ? '该创建请求已处理，未重复生成竞赛' : `竞赛已创建：${response.accessCode}`)
@@ -174,10 +194,9 @@ export default function CompetitionsView({
         <Field label="比赛编号" hint="留空自动生成">
           <Input className="mono" maxLength={20} value={code} onChange={event => setCode(event.target.value.toUpperCase())} placeholder="自动生成"/>
         </Field>
-        <label className="competition-option">
-          <input type="checkbox" checked={pinyinEnabled} onChange={event => setPinyinEnabled(event.target.checked)}/>
-          <span><strong>拼音提示</strong><small>向学生显示</small></span>
-        </label>
+        <div className="competition-options">
+          <OptionsMenu value={options} onChange={setOptions}/>
+        </div>
         <Button onClick={create} disabled={!articleId || creating}>
           <Plus size={14}/>{creating ? '正在创建…' : '创建竞赛'}
         </Button>
@@ -187,37 +206,45 @@ export default function CompetitionsView({
     <Panel>
       <PanelHeader title="活跃竞赛" description="学生可通过比赛编号进入等待室"/>
       <div className="table-wrap">{active.length ? <table className="data-table">
-        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>限时</th><th>已进入</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
-        <tbody>{active.map(comp => <tr key={comp.id}>
-          <td className="td-title">{comp.article_title}</td>
-          <td><button className="code-copy mono" onClick={() => navigator.clipboard.writeText(comp.access_code).then(() => notify('比赛编号已复制'))}>{comp.access_code}<Clipboard size={12}/></button></td>
-          <td><Badge tone={comp.status === 'running' ? 'success' : 'warning'}>{comp.status === 'running' ? '进行中' : '等待开始'}</Badge></td>
-          <td><Badge tone={comp.pinyin_enabled ? 'blue' : 'neutral'}>{comp.pinyin_enabled ? '开启' : '关闭'}</Badge></td>
-          <td>{Math.round(comp.time_limit / 60)} 分钟</td>
-          <td><button className="link-button" onClick={() => setShowPeople(comp)}>{participants[comp.id]?.length || 0} 人</button></td>
-          <td><div className="row-actions">
-            {comp.status === 'waiting'
-              ? <Button size="sm" onClick={() => setConfirm({ type: 'start', comp })}><Play size={13}/>开始</Button>
-              : <Button size="sm" variant="danger" onClick={() => setConfirm({ type: 'stop', comp })}><Square size={13}/>停止</Button>}
-            <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)} title="查看成绩"><BarChart3 size={14}/></Button>
-          </div></td>
-        </tr>)}</tbody>
+        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>文本选项</th><th>限时</th><th>已进入</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
+        <tbody>{active.map(comp => {
+          const optionState = optionsOf(comp)
+          const optionCount = countEnabledOptions(optionState)
+          return <tr key={comp.id}>
+            <td className="td-title">{comp.article_title}</td>
+            <td><button className="code-copy mono" onClick={() => navigator.clipboard.writeText(comp.access_code).then(() => notify('比赛编号已复制'))}>{comp.access_code}<Clipboard size={12}/></button></td>
+            <td><Badge tone={comp.status === 'running' ? 'success' : 'warning'}>{comp.status === 'running' ? '进行中' : '等待开始'}</Badge></td>
+            <td><span title={enabledOptionLabels(optionState).join('、') || '无'}><Badge tone={optionCount > 1 ? 'blue' : 'neutral'}>{optionCount} 项</Badge></span></td>
+            <td>{Math.round(comp.time_limit / 60)} 分钟</td>
+            <td><button className="link-button" onClick={() => setShowPeople(comp)}>{participants[comp.id]?.length || 0} 人</button></td>
+            <td><div className="row-actions">
+              {comp.status === 'waiting'
+                ? <Button size="sm" onClick={() => setConfirm({ type: 'start', comp })}><Play size={13}/>开始</Button>
+                : <Button size="sm" variant="danger" onClick={() => setConfirm({ type: 'stop', comp })}><Square size={13}/>停止</Button>}
+              <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)} title="查看成绩"><BarChart3 size={14}/></Button>
+            </div></td>
+          </tr>
+        })}</tbody>
       </table> : <Empty title="没有活跃竞赛" description="在上方创建一场新竞赛"/>}</div>
     </Panel>
 
     <Panel>
       <PanelHeader title="竞赛历史" description="所有已创建竞赛及其状态"/>
       <div className="table-wrap">{items.length ? <table className="data-table">
-        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>拼音</th><th>创建时间</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
-        <tbody>{items.map(comp => <tr key={comp.id}>
-          <td className="td-title">{comp.article_title}</td><td className="mono">{comp.access_code}</td>
-          <td><Badge tone={comp.status === 'running' ? 'success' : comp.status === 'waiting' ? 'warning' : 'neutral'}>{comp.status === 'running' ? '进行中' : comp.status === 'waiting' ? '等待开始' : '已结束'}</Badge></td>
-          <td>{comp.pinyin_enabled ? '开启' : '关闭'}</td><td>{comp.created_at}</td>
-          <td><div className="row-actions">
-            <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)}><BarChart3 size={14}/></Button>
-            <Button size="icon" variant="ghost" disabled={comp.status === 'running'} onClick={() => setConfirm({ type: 'delete', comp })}><Trash2 size={14}/></Button>
-          </div></td>
-        </tr>)}</tbody>
+        <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>文本选项</th><th>创建时间</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
+        <tbody>{items.map(comp => {
+          const optionState = optionsOf(comp)
+          const optionCount = countEnabledOptions(optionState)
+          return <tr key={comp.id}>
+            <td className="td-title">{comp.article_title}</td><td className="mono">{comp.access_code}</td>
+            <td><Badge tone={comp.status === 'running' ? 'success' : comp.status === 'waiting' ? 'warning' : 'neutral'}>{comp.status === 'running' ? '进行中' : comp.status === 'waiting' ? '等待开始' : '已结束'}</Badge></td>
+            <td><span title={enabledOptionLabels(optionState).join('、') || '无'}><Badge tone={optionCount > 1 ? 'blue' : 'neutral'}>{optionCount} 项</Badge></span></td><td>{comp.created_at}</td>
+            <td><div className="row-actions">
+              <Button size="icon" variant="ghost" onClick={() => openResults(comp.id)}><BarChart3 size={14}/></Button>
+              <Button size="icon" variant="ghost" disabled={comp.status === 'running'} onClick={() => setConfirm({ type: 'delete', comp })}><Trash2 size={14}/></Button>
+            </div></td>
+          </tr>
+        })}</tbody>
       </table> : <Empty title="暂无竞赛记录"/>}</div>
     </Panel>
 

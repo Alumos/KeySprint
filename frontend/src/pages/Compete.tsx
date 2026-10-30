@@ -24,6 +24,12 @@ import { Badge, Button, Modal, StatStrip } from "../components/ui";
 import { api, json, wsURL } from "../lib/api";
 import type { Article, Competition } from "../lib/types";
 import {
+  applyTextOptions,
+  equivalentChar,
+  isPinyinChar,
+  resolveTextOptions,
+} from "../lib/textOptions";
+import {
   countInput,
   deleteBefore,
   followScrollDelta,
@@ -47,6 +53,7 @@ type CharCellProps = {
   pinyinText: string;
   value?: string;
   caret: boolean;
+  match: (expected: string, typed: string) => boolean;
   onSelect: (index: number) => void;
 };
 
@@ -59,9 +66,10 @@ const CharCell = memo(function CharCell({
   pinyinText,
   value,
   caret,
+  match,
   onSelect,
 }: CharCellProps) {
-  const state = value !== undefined ? (value === char ? "is-correct" : "is-wrong") : "";
+  const state = value !== undefined ? (match(char, value) ? "is-correct" : "is-wrong") : "";
   return (
     <span
       className={`char-cell ${state} ${caret ? "is-caret" : ""}`}
@@ -78,8 +86,6 @@ const CharCell = memo(function CharCell({
   );
 });
 
-const punctuation =
-  /[，。！？；：“”‘’、（）《》—…\s,.\-!?;:'"()\[\]{}<>/@#$%^&*+=~`|]/;
 const parseTime = (s?: string) =>
   s ? new Date(s.includes("T") ? s : s.replace(" ", "T") + "Z").getTime() : 0;
 const fmt = (n: number) =>
@@ -185,21 +191,31 @@ export default function Compete() {
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, [positionImeInput]);
-  const chars = useMemo(() => Array.from(article?.content || ""), [article]);
+  const options = useMemo(() => resolveTextOptions(comp), [comp]);
+  const content = useMemo(
+    () => applyTextOptions(article?.content || "", options),
+    [article, options],
+  );
+  const chars = useMemo(() => Array.from(content), [content]);
   const totalCount = useMemo(() => chars.reduce((n, ch) => n + Number(ch !== "\n"), 0), [chars]);
-  const { typedCount, correct } = useMemo(() => countInput(chars, buffer), [chars, buffer]);
+  const sameChar = useCallback(
+    (expected: string, typed: string) => equivalentChar(expected, typed, options),
+    [options],
+  );
+  const { typedCount, correct } = useMemo(
+    () => countInput(chars, buffer, sameChar),
+    [chars, buffer, sameChar],
+  );
   const accuracy = typedCount ? correct / typedCount : 1;
   const speed = elapsed ? correct / (elapsed / 60) : 0;
   const progress = totalCount ? (typedCount / totalCount) * 100 : 0;
   const key = comp ? `keysprint_session_${comp.id}_${studentId}` : "";
   const py = useMemo(
     () =>
-      comp?.pinyin_enabled === false ? [] : chars.map((ch) =>
-        ch === "\n" || punctuation.test(ch)
-          ? ""
-          : pinyin(ch, { toneType: "symbol" }),
-      ),
-    [chars, comp?.pinyin_enabled],
+      options.pinyin
+        ? chars.map((ch) => (isPinyinChar(ch) ? pinyin(ch, { toneType: "symbol" }) : ""))
+        : [],
+    [chars, options.pinyin],
   );
   const next = useCallback((pos: number) => nextPosition(chars, pos), [chars]);
   const prev = useCallback((pos: number) => previousPosition(chars, pos), [chars]);
@@ -222,7 +238,9 @@ export default function Compete() {
   );
   const loadArticle = useCallback(
     async (c: Competition, isLate: boolean) => {
-      const a = await api<Article>(`/api/articles/${c.article_id}`);
+      const a = await api<Article>(
+        `/api/articles/${c.article_id}?code=${encodeURIComponent(c.access_code)}`,
+      );
       setArticle(a);
       setComp(c);
       const storageKey = `keysprint_session_${c.id}_${studentId}`;
@@ -245,7 +263,9 @@ export default function Compete() {
       } else {
         bufferRef.current = {};
         setBuffer({});
-        setCursor(nextPosition(Array.from(a.content), 0));
+        setCursor(
+          nextPosition(Array.from(applyTextOptions(a.content, resolveTextOptions(c))), 0),
+        );
         submitted.current = false;
         setAnchor(Date.now());
         setLate(isLate);
@@ -261,7 +281,7 @@ export default function Compete() {
     setStatus("finished");
     setResultOpen(true);
     persist({ submitted: true, buffer: bufferRef.current, cursor: cursorRef.current });
-    const { typedCount, correct } = countInput(chars, bufferRef.current);
+    const { typedCount, correct } = countInput(chars, bufferRef.current, sameChar);
     if (late || typedCount === 0) {
       setSubmitState("idle");
       return;
@@ -270,6 +290,7 @@ export default function Compete() {
       competitionId: comp!.id,
       studentId,
       studentName,
+      accessCode: code,
       classId: Number(sessionStorage.getItem("studentClassId") || 0) || undefined,
       correctCount: correct,
       typedCount,
@@ -291,9 +312,11 @@ export default function Compete() {
   }, [
     anchor,
     chars,
+    code,
     comp,
     late,
     persist,
+    sameChar,
     studentId,
     studentName,
   ]);
@@ -332,7 +355,10 @@ export default function Compete() {
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     function connect() {
       if (stopped) return;
-      const ws = new WebSocket(wsURL());
+      const ws = new WebSocket(
+        `${wsURL()}?code=${encodeURIComponent(code)}&competitionId=${competitionId}` +
+          `&studentId=${encodeURIComponent(studentId)}&studentName=${encodeURIComponent(studentName)}`,
+      );
       socket.current = ws;
       ws.onopen = () => {
         setConnected(true);
@@ -362,7 +388,7 @@ export default function Compete() {
       clearTimeout(reconnectTimer);
       socket.current?.close();
     };
-  }, [comp?.id, loadArticle, studentId, studentName]);
+  }, [code, comp?.id, loadArticle, studentId, studentName]);
   useEffect(() => {
     if (status !== "waiting" || !code) return;
     const t = setInterval(async () => {
@@ -396,9 +422,20 @@ export default function Compete() {
     const t = setInterval(tick, 250);
     return () => clearInterval(t);
   }, [anchor, comp, late, status]);
+  // Persisting every keystroke rewrites the whole buffer as JSON. Debounce to
+  // one write per idle moment and flush once more when the page goes away.
+  const persistRef = useRef<() => void>(() => {});
+  persistRef.current = persist;
   useEffect(() => {
-    if (status === "running") persist();
+    if (status !== "running") return;
+    const timer = window.setTimeout(persist, 400);
+    return () => window.clearTimeout(timer);
   }, [buffer, cursor, persist, status]);
+  useEffect(() => {
+    const flush = () => persistRef.current();
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
   // Finish after React commits the final input, so both the modal and payload
   // include the last character (also safe with StrictMode updater replay).
   useEffect(() => {
@@ -444,10 +481,11 @@ export default function Compete() {
         pinyinText={py[i] || ""}
         value={buffer[i]}
         caret={cursor === i && focused && status === "running"}
+        match={sameChar}
         onSelect={selectChar}
       />
     )),
-    [chars, py, buffer, cursor, focused, status, selectChar],
+    [chars, py, buffer, cursor, focused, status, sameChar, selectChar],
   );
   function keydown(e: React.KeyboardEvent) {
     if (composing.current) return;
@@ -577,7 +615,7 @@ export default function Compete() {
           ) : (
             <div
               ref={typingContent}
-              className={`typing-content ${comp?.pinyin_enabled === false ? "without-pinyin" : ""}`}
+              className={`typing-content ${options.pinyin ? "" : "without-pinyin"}`}
             >
               {articleCells}
             </div>

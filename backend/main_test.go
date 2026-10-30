@@ -323,7 +323,7 @@ func TestResultMetricsAreDerivedFromCountsAndDuration(t *testing.T) {
 
 	// Deliberately include bogus legacy derived values. The server must ignore
 	// them and calculate 6/8 = 75%% and 6*60/30 = 12 correct chars/minute.
-	payload := fmt.Sprintf(`{"competitionId":%d,"studentId":"001","studentName":"张三","correctCount":6,"typedCount":8,"duration":30,"accuracy":0.01,"speed":9999}`, competitionID)
+	payload := fmt.Sprintf(`{"competitionId":%d,"studentId":"001","studentName":"张三","correctCount":6,"typedCount":8,"duration":30,"accuracy":0.01,"speed":9999,"accessCode":"METRICS"}`, competitionID)
 	status, result := request(t, h, "POST", "/api/results", payload, "")
 	if status != http.StatusOK || result["success"] != true {
 		t.Fatalf("submit: %d %v", status, result)
@@ -383,5 +383,211 @@ func TestLegacyResultsAreNormalizedWithoutDataLoss(t *testing.T) {
 	}
 	if correct != 6 || typed != 8 || duration != 30 {
 		t.Fatalf("migrated result: correct=%d typed=%d duration=%d", correct, typed, duration)
+	}
+}
+
+// startCompetition creates an article and a started competition, returning its ID.
+func startCompetition(t *testing.T, a *app, h http.Handler, token, code string) int64 {
+	t.Helper()
+	if status, out := request(t, h, "POST", "/api/articles", `{"title":"范文","content":"一二三四五六七八九十"}`, token); status != http.StatusOK {
+		t.Fatalf("article: %d %v", status, out)
+	}
+	status, created := request(t, h, "POST", "/api/competition/create",
+		`{"articleId":1,"timeLimit":120,"customCode":"`+code+`"}`, token)
+	if status != http.StatusOK {
+		t.Fatalf("create competition: %d %v", status, created)
+	}
+	id := int64(created["id"].(float64))
+	if status, out := request(t, h, "POST", "/api/competition/start", fmt.Sprintf(`{"id":%d}`, id), token); status != http.StatusOK {
+		t.Fatalf("start competition: %d %v", status, out)
+	}
+	return id
+}
+
+func loginTeacher(t *testing.T, h http.Handler) string {
+	t.Helper()
+	if status, _ := request(t, h, "POST", "/api/setup/init", `{"teacherUsername":"teacher","teacherPassword":"secret1"}`, ""); status != http.StatusOK {
+		t.Fatalf("setup status=%d", status)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	if token == "" {
+		t.Fatalf("login failed: %v", login)
+	}
+	return token
+}
+
+func TestTextOptionsRoundTrip(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	request(t, h, "POST", "/api/articles", `{"title":"选项","content":"一二三，四。五"}`, token)
+
+	status, created := request(t, h, "POST", "/api/competition/create",
+		`{"articleId":1,"timeLimit":120,"customCode":"OPTS","textOptions":{"pinyin":false,"stripSymbols":true,"unifySymbols":true,"stripBreaks":false}}`, token)
+	if status != http.StatusOK || created["success"] != true {
+		t.Fatalf("create: %d %v", status, created)
+	}
+	status, comp := request(t, h, "GET", "/api/competition/by-code/OPTS", "", "")
+	if status != http.StatusOK {
+		t.Fatalf("by code: %d %v", status, comp)
+	}
+	if comp["pinyin_enabled"] != false {
+		t.Fatalf("legacy pinyin projection = %v", comp["pinyin_enabled"])
+	}
+	options, ok := comp["text_options"].(map[string]any)
+	if !ok || options["pinyin"] != false || options["stripSymbols"] != true || options["unifySymbols"] != true || options["stripBreaks"] != false {
+		t.Fatalf("text options: %#v", comp["text_options"])
+	}
+
+	// A page from the previous release only knows pinyinEnabled.
+	status, legacy := request(t, h, "POST", "/api/competition/create", `{"articleId":1,"timeLimit":60,"customCode":"LEGACY","pinyinEnabled":false}`, token)
+	if status != http.StatusOK || legacy["success"] != true {
+		t.Fatalf("legacy create: %d %v", status, legacy)
+	}
+	status, comp = request(t, h, "GET", "/api/competition/by-code/LEGACY", "", "")
+	if status != http.StatusOK {
+		t.Fatalf("legacy by code: %d %v", status, comp)
+	}
+	options, ok = comp["text_options"].(map[string]any)
+	if !ok || options["pinyin"] != false || options["stripSymbols"] != false {
+		t.Fatalf("legacy options: %#v", comp["text_options"])
+	}
+}
+
+func TestResultSubmissionRequiresAccessCode(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	id := startCompetition(t, a, h, token, "REQ1")
+	body := func(code string) string {
+		payload := fmt.Sprintf(`{"competitionId":%d,"studentId":"001","studentName":"张三","correctCount":5,"typedCount":6,"duration":30`, id)
+		if code != "" {
+			payload += `,"accessCode":"` + code + `"`
+		}
+		return payload + "}"
+	}
+	if status, out := request(t, h, "POST", "/api/results", body(""), ""); status != http.StatusForbidden {
+		t.Fatalf("missing code: %d %v", status, out)
+	}
+	if status, out := request(t, h, "POST", "/api/results", body("WRONG"), ""); status != http.StatusForbidden {
+		t.Fatalf("wrong code: %d %v", status, out)
+	}
+	if status, out := request(t, h, "POST", "/api/results", body("REQ1"), ""); status != http.StatusOK || out["success"] != true {
+		t.Fatalf("valid code: %d %v", status, out)
+	}
+}
+
+func TestResultSubmissionClosesAfterGrace(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	id := startCompetition(t, a, h, token, "GRACE")
+	payload := fmt.Sprintf(`{"competitionId":%d,"studentId":"001","studentName":"张三","correctCount":5,"typedCount":6,"duration":30,"accessCode":"GRACE"}`, id)
+
+	if _, err := a.db.Exec("UPDATE competitions SET status='stopped', stopped_at='2026-01-01 00:00:00' WHERE id=?", id); err != nil {
+		t.Fatal(err)
+	}
+	if status, out := request(t, h, "POST", "/api/results", payload, ""); status != http.StatusConflict {
+		t.Fatalf("late submission: %d %v", status, out)
+	}
+
+	// The grace window keeps the final keystrokes of a race accepted.
+	if _, err := a.db.Exec("UPDATE competitions SET status='stopped', stopped_at=datetime('now') WHERE id=?", id); err != nil {
+		t.Fatal(err)
+	}
+	if status, out := request(t, h, "POST", "/api/results", payload, ""); status != http.StatusOK {
+		t.Fatalf("grace submission: %d %v", status, out)
+	}
+}
+
+func TestPublicArticleRequiresCompetitionCode(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	request(t, h, "POST", "/api/articles", `{"title":"范文","content":"一二三"}`, token)
+
+	if status, _ := request(t, h, "GET", "/api/articles/1", "", ""); status != http.StatusNotFound {
+		t.Fatalf("article without code: %d", status)
+	}
+	if status, _ := request(t, h, "POST", "/api/competition/create", `{"articleId":1,"timeLimit":120,"customCode":"READ"}`, token); status != http.StatusOK {
+		t.Fatalf("create competition: %d", status)
+	}
+	status, article := request(t, h, "GET", "/api/articles/1?code=READ", "", "")
+	if status != http.StatusOK || article["content"] != "一二三" {
+		t.Fatalf("article with code: %d %v", status, article)
+	}
+	if status, _ := request(t, h, "GET", "/api/articles/1?code=NOPE", "", ""); status != http.StatusNotFound {
+		t.Fatalf("article with wrong code: %d", status)
+	}
+}
+
+func TestPublicRosterRequiresCompetitionCode(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	if _, err := a.db.Exec("INSERT INTO classes(teacher_id,name) VALUES(1,'一班')"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec("INSERT INTO class_students(class_id,student_id,student_name) VALUES(1,'001','张三')"); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, _ := request(t, h, "GET", "/api/classes/by-teacher/1", "", ""); status != http.StatusNotFound {
+		t.Fatalf("classes without code: %d", status)
+	}
+	if status, _ := request(t, h, "GET", "/api/classes/1/students/public", "", ""); status != http.StatusNotFound {
+		t.Fatalf("students without code: %d", status)
+	}
+
+	request(t, h, "POST", "/api/articles", `{"title":"范文","content":"一二三"}`, token)
+	if status, _ := request(t, h, "POST", "/api/competition/create", `{"articleId":1,"timeLimit":120,"customCode":"ROSTER"}`, token); status != http.StatusOK {
+		t.Fatalf("create competition: %d", status)
+	}
+	if status, _ := request(t, h, "GET", "/api/classes/by-teacher/1?code=ROSTER", "", ""); status != http.StatusOK {
+		t.Fatalf("classes with code: %d", status)
+	}
+	if status, _ := request(t, h, "GET", "/api/classes/1/students/public?code=ROSTER", "", ""); status != http.StatusOK {
+		t.Fatalf("students with code: %d", status)
+	}
+}
+
+func TestWebsocketOriginPolicy(t *testing.T) {
+	a := &app{allowedOrigins: []string{"cdn.example.com"}}
+	cases := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{"non-browser client", "", true},
+		{"same host", "https://origin.local", true},
+		{"other host", "https://evil.example", false},
+		{"explicitly allowed cdn", "https://cdn.example.com", true},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest("GET", "/ws", nil)
+		r.Host = "origin.local"
+		if tc.origin != "" {
+			r.Header.Set("Origin", tc.origin)
+		}
+		if got := a.originAllowed(r); got != tc.want {
+			t.Fatalf("%s: originAllowed=%v", tc.name, got)
+		}
+	}
+}
+
+func TestWebsocketRejectsMissingCredentials(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	if status, out := request(t, h, "GET", "/ws", "", ""); status != http.StatusUnauthorized {
+		t.Fatalf("missing credentials: %d %v", status, out)
+	}
+	r := httptest.NewRequest("GET", "/ws", nil)
+	r.Host = "origin.local"
+	r.Header.Set("Origin", "https://evil.example")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("cross origin: %d", w.Code)
 	}
 }
