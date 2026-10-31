@@ -2,6 +2,7 @@ import { BarChart3, Clipboard, Play, Plus, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSelect, Badge, Button, Empty, Field, Input, Modal, OptionsMenu, Pagination, Panel, PanelHeader, StatStrip } from '../../components/ui'
 import { api, json, wsURL } from '../../lib/api'
+import { copyText } from '../../lib/clipboard'
 import { DEFAULT_TEXT_OPTIONS, countEnabledOptions, enabledOptionLabels, resolveTextOptions } from '../../lib/textOptions'
 import type { Article, Competition, Student } from '../../lib/types'
 
@@ -219,7 +220,7 @@ export default function CompetitionsView({
           const optionCount = countEnabledOptions(optionState)
           return <tr key={comp.id}>
             <td className="td-title">{comp.article_title}</td>
-            <td><button className="code-copy mono" onClick={() => navigator.clipboard.writeText(comp.access_code).then(() => notify('比赛编号已复制'))}>{comp.access_code}<Clipboard size={12}/></button></td>
+            <td><button className="code-copy mono" onClick={() => copyText(comp.access_code).then(() => notify('比赛编号已复制')).catch(error => notify((error as Error).message))}>{comp.access_code}<Clipboard size={12}/></button></td>
             <td><Badge tone={comp.status === 'running' ? 'success' : 'warning'}>{comp.status === 'running' ? '进行中' : '等待开始'}</Badge></td>
             <td><span title={enabledOptionLabels(optionState).join('、') || '无'}><Badge tone={optionCount > 1 ? 'blue' : 'neutral'}>{optionCount} 项</Badge></span></td>
             <td>{Math.round(comp.time_limit / 60)} 分钟</td>

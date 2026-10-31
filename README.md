@@ -12,7 +12,7 @@
 ![Release](https://img.shields.io/github/v/release/Alumos/KeySprint?style=flat-square)
 ![Go](https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=20232A)
-![Image](https://img.shields.io/badge/image-amd64%20%7C%20arm64-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Image](https://img.shields.io/badge/image-linux%2Famd64-2496ED?style=flat-square&logo=docker&logoColor=white)
 
 </div>
 
@@ -71,7 +71,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，支持 `linux/amd64` 与 `linux/arm64`。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.7.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.7.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ### ClassOrbit 8080 + KeySprint 8081
 
@@ -108,18 +108,30 @@ docker compose -f compose.vps.yaml ps
 
 访问 `http://VPS_IP:8081`。VPS 配置默认通过 `ghcr.milu.moe` 加速拉取 GHCR 镜像，并加入 Linux Docker 所需的 `host-gateway` 映射。KeySprint 容器会通过 `http://host.docker.internal:8080` 访问 ClassOrbit；不要填写 `http://127.0.0.1:8080`，容器内的回环地址指向 KeySprint 自己。
 
+## ✦ Windows 局域网部署（免 Docker）
+
+机房/教室没有云服务器、也不允许安装 Docker 时，用发布页的 Windows 便携包（`keysprint-<版本>-windows-x64.zip`，amd64）把教师机变成课堂服务器：
+
+1. 从 [Releases](https://github.com/Alumos/KeySprint/releases) 下载并**完整解压**到固定目录（例如 `D:\KeySprint`）；
+2. 右键 `allow-firewall.bat` → 以管理员身份运行，放行 8080 端口；
+3. 双击 `start.bat` 启动（首次自动生成 `config.env` 与数据库），本机打开 `http://127.0.0.1:8080` 完成管理员初始化；
+4. 用 `ipconfig` 查出本机 IPv4，学生浏览器访问 `http://<教师机IP>:8080`，输入比赛编号即可；
+5. 可选：以管理员身份运行 `install-autostart.bat`，开机自动启动，无需登录桌面。
+
+整套服务**运行时不需要外网**（前端资源全部打包，没有 CDN、在线字体或第三方请求），因此适合只能访问国内网络的教学专网。内网访问无需备案号，后台「系统配置」里留空即可。备份 = 停止服务后复制 `data` 目录；升级 = 替换 `keysprint.exe` 与 `web`，保留 `data` 与 `config.env`。完整步骤、常见问题与多教师共用方案见 [docs/LAN-DEPLOY.md](docs/LAN-DEPLOY.md)。
+
 ## ✦ 自动构建
 
 [GitHub Actions](.github/workflows/publish-container.yml) 会执行：
 
 1. 运行 Go 后端测试；
 2. 安装锁定的前端依赖，运行输入逻辑回归测试并执行 TypeScript/Vite 生产构建；
-3. 构建双架构极简镜像；
-4. 发布到 `ghcr.io/alumos/keysprint`；
-5. 为镜像附加 SBOM 与 provenance；
-6. 正式 Tag 构建完成后自动创建 GitHub Release。
+3. 构建 `linux/amd64` 极简镜像并发布到 `ghcr.io/alumos/keysprint`；
+4. 为镜像附加 SBOM 与 provenance；
+5. 在原生 amd64 的 `windows-latest` 环境构建 Windows 便携包（免 Docker，功能与容器版一致）；
+6. 正式 Tag 构建完成后自动创建 GitHub Release，并附上 Windows 便携包。
 
-推送 `main` 会生成 `latest`、`main` 和 `sha-xxxxxxx`；推送 `v1.2.3` 标签还会生成 `1.2.3`、`1.2` 与 `1`。Pull Request 只测试和构建，不发布镜像。
+推送 `main` 会生成 `latest`、`main` 和 `sha-xxxxxxx`；推送 `v1.2.3` 标签还会生成 `1.2.3`、`1.2` 与 `1`。Pull Request 只测试和构建，不发布镜像。每次构建的 Windows 包也会作为 Actions artifact（`keysprint-windows-x64`）保留 30 天，无需打 Tag 也能取用。
 
 运行镜像以 `scratch` 为底，只包含静态 Go 二进制、前端资源与 HTTPS 根证书；没有 shell、包管理器或多余系统工具。容器使用非 root 用户、只读根文件系统、应用内健康检查并移除全部 Linux capabilities。
 

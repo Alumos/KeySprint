@@ -74,6 +74,8 @@
 | `Dockerfile` | 4 阶段构建：前端 dist → Go 交叉编译 → 证书 → `scratch` 运行 |
 | `docker-compose.yml` / `compose.deploy.yaml` / `compose.vps.yaml` | 本地源码构建 / 标准服务器 / 与同机 ClassOrbit 共存 |
 | `Makefile`、`scripts/check-version.sh` | 本地命令与版本门禁 |
+| `scripts/package-windows.ps1` | Windows 便携包打包：交叉编译 amd64 exe、复制 dist、注入启动脚本、打 zip |
+| `deploy/windows/` | 免 Docker 部署脚本：`start.bat`（自动生成配置/启动）、`stop.bat`、防火墙、开机自启、中文说明 |
 | `.github/workflows/publish-container.yml` | 测试 → 双架构镜像 → GHCR → SBOM/provenance → Release |
 | `VERSION`、`CHANGELOG.md`、`RELEASING.md` | 版本唯一源与发布流程 |
 
@@ -146,10 +148,13 @@
 
 - 本地校验：`make test` = 版本门禁 + 前端单测 + `go test ./...` + 前端构建（需先 `npm ci`）。
 - 版本：`VERSION` 为唯一来源，必须与 `frontend/package.json`、`package-lock.json` 顶层版本、CHANGELOG 段落一致；打 `vX.Y.Z` tag 时 CI 会校验。
-- 发布：push tag → CI 跑测试 → buildx 构建 `linux/amd64,linux/arm64` → 推 `ghcr.io/alumos/keysprint`（`X.Y.Z`/`X.Y`/`X`/`latest`/`sha-*`）→ 附 SBOM/provenance → 自动建 Release。无需自定义 secret。
+- 发布：push tag → CI 跑测试 → buildx 构建 `linux/amd64` → 推 `ghcr.io/alumos/keysprint`（`X.Y.Z`/`X.Y`/`X`/`latest`/`sha-*`）→ 附 SBOM/provenance → 在 `windows-latest` 构建 Windows 便携包 → 自动建 Release 并上传 zip。无需自定义 secret。
+- Windows 包：`./scripts/package-windows.ps1 -Version X.Y.Z`（需先构建 `frontend/dist`），产物 `dist-windows/keysprint-X.Y.Z-windows-x64.zip`；每次 push 也会作为 Actions artifact 上传。
 - 本地镜像：`docker compose up -d --build`（本机 Windows 不装 Docker 时跳过，用第 10 节方式开发）。
 
 ## 9. 部署（VPS + EdgeOne CDN）
+
+> 没有 Docker、只有一台 Windows 教师机的机房场景见第 16 节。
 
 1. 服务器只装 Docker + Compose，拉 `compose.deploy.yaml` 与 `.env.example` 为 `.env`，把 `JWT_SECRET` 换成 `openssl rand -hex 32`。
 2. `docker compose -f compose.deploy.yaml pull && up -d`，访问 `http://服务器:8080`，首次进管理员初始化。
@@ -242,3 +247,19 @@ go run .
 **性能**：赛场输入缓存写入改为 400ms 防抖 + 页面卸载兜底；拼音仅对需要提示的字符计算；WS 广播对慢客户端不阻塞、失败即断开清理；哈希静态资源长缓存。
 
 **兼容性**：旧页面仍可用 `pinyin_enabled` 创建竞赛；但旧标签页的学生端提交、导出链接和 `/ws` 连接需要刷新页面（新协议要求比赛编号/ticket）。
+
+## 16. Windows 局域网部署（免 Docker）
+
+机房/教室没有云服务器、不能装 Docker、只有一台 Windows 教师机时的部署形态；完整操作见 [LAN-DEPLOY.md](LAN-DEPLOY.md)。
+
+```
+学生机浏览器 ──http://<教师机IP>:8080──> 教师机 keysprint.exe + web\
+                                        └─ data\keysprint.db（SQLite WAL）
+```
+
+- 产物：GitHub Release 附件 / Actions artifact `keysprint-<版本>-windows-x64.zip`；由 `scripts/package-windows.ps1` 在 `windows-latest` 原生 amd64 上构建（`CGO_ENABLED=0`，无 QEMU、无 arm64）。
+- 包内：`keysprint.exe`、`web/`、`start.bat`、`stop.bat`、`allow-firewall.bat`、`install-autostart.bat`、`remove-autostart.bat`、`config.env.example`、`README.txt`。
+- `start.bat` 首次运行自动生成 `config.env`（随机 `JWT_SECRET`、`ADDR=:8080`、`TZ`）与 `data/`、`logs/`；此后读取该文件，日志重定向到 `logs\keysprint.log`。
+- 运行时零外网依赖：前端全部本地资源，无 CDN/字体外链；内网无需备案号（系统配置留空）。
+- 已知约束：教师机不能休眠；IP 需固定；学生端浏览器需近两年 Chrome/Edge；非安全上下文下的复制已由 `lib/clipboard.ts` 兜底。
+- 镜像改为 `linux/amd64` 单架构后，CI 不再需要 QEMU；如需 arm64 可在 `docker buildx` 中自行加回。

@@ -4,6 +4,16 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 ## [Unreleased]
 
+### Added
+
+- Windows 便携包（免 Docker 局域网部署）：CI 在原生 amd64 的 `windows-latest` 构建 `keysprint-<版本>-windows-x64.zip`，附在 GitHub Release（每次 push 也作为 Actions artifact 保留 30 天）；包含启动、停止、防火墙、开机自启脚本与中文部署说明。
+- 新增 [docs/LAN-DEPLOY.md](docs/LAN-DEPLOY.md)：机房/教室 Windows 局域网部署指南（备份、升级、多教师共用、常见问题）。
+- 「复制比赛编号」在非安全上下文（`http://<内网IP>`）下回退 `execCommand`，局域网部署下仍可复制。
+
+### Changed
+
+- 容器镜像改为 `linux/amd64` 单架构，CI 移除 QEMU；构建更快，部署目标（VPS/学校服务器）均为 amd64。
+
 ### Planned
 
 - 后续变更先进入本节，发布时再归入对应版本。

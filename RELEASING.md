@@ -18,7 +18,7 @@ KeySprint 使用 Semantic Versioning，唯一版本源为根目录 [`VERSION`](V
 | Git 事件 | GHCR 标签 | GitHub Release |
 | --- | --- | --- |
 | 推送 `main` | `latest`、`main`、`sha-xxxxxxx` | 不创建 |
-| Tag `v1.2.3` | `v1.2.3`、`1.2.3`、`1.2`、`1`、`sha-xxxxxxx` | 正式 Release |
+| Tag `v1.2.3` | `v1.2.3`、`1.2.3`、`1.2`、`1`、`sha-xxxxxxx` | 正式 Release（附 Windows 便携包） |
 | Tag `v1.3.0-rc.1` | `v1.3.0-rc.1`、`1.3.0-rc.1`、`sha-xxxxxxx` | Pre-release |
 | Pull Request | 只测试与构建 | 不创建 |
 
@@ -38,8 +38,17 @@ KeySprint 使用 Semantic Versioning，唯一版本源为根目录 [`VERSION`](V
    git push origin v1.2.3
    ```
 
-6. 等待 GitHub Actions 完成测试、双架构镜像发布和 GitHub Release 创建。
+6. 等待 GitHub Actions 完成测试、`linux/amd64` 镜像发布、Windows 便携包构建和 GitHub Release 创建。
 7. 匿名读取 GHCR 清单或在服务器执行 `docker compose pull`，确认版本可用。
+
+## 产物
+
+| 产物 | 位置 | 说明 |
+| --- | --- | --- |
+| 容器镜像 | `ghcr.io/alumos/keysprint` | `linux/amd64`；Tag 生成 `X.Y.Z`/`X.Y`/`X`，main 生成 `latest`/`main`/`sha-*` |
+| Windows 便携包 | GitHub Release 附件 + Actions artifact | `keysprint-<版本>-windows-x64.zip`，解压即用，不需要 Docker 与 .NET/VC++ 运行库 |
+
+Windows 包由 `scripts/package-windows.ps1` 在 `windows-latest` 上原生构建（GOARCH=amd64，CGO 关闭），内容为 `keysprint.exe`、`web/` 前端静态文件、启动/防火墙/开机自启脚本与中文部署说明；`data/` 与 `config.env` 在首次运行时生成。
 
 ## 自动约束
 
