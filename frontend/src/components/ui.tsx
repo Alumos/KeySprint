@@ -23,6 +23,13 @@ export function AppSelect({value,onValueChange,placeholder='请选择',items,dis
   return <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}><Select.Trigger className="select-trigger"><Select.Value placeholder={placeholder}/><Select.Icon><ChevronDown size={15}/></Select.Icon></Select.Trigger><Select.Portal><Select.Content className="select-content" position="popper" sideOffset={4}><Select.Viewport>{items.map(x=><Select.Item className="select-item" value={x.value} key={x.value}><Select.ItemText>{x.label}</Select.ItemText><Select.ItemIndicator><Check size={14}/></Select.ItemIndicator></Select.Item>)}</Select.Viewport></Select.Content></Select.Portal></Select.Root>
 }
 
+export function Pagination({page,pageSize,total,onPageChange}:{page:number;pageSize:number;total:number;onPageChange:(page:number)=>void}){
+  const pages=Math.max(1,Math.ceil(total/pageSize))
+  const current=Math.min(Math.max(1,page),pages)
+  if(total<=pageSize) return null
+  return <div className="pagination"><span className="pagination-info">共 {total} 条 · 第 {current} / {pages} 页</span><div className="pagination-actions"><Button size="sm" variant="outline" disabled={current<=1} onClick={()=>onPageChange(current-1)}>上一页</Button><Button size="sm" variant="outline" disabled={current>=pages} onClick={()=>onPageChange(current+1)}>下一页</Button></div></div>
+}
+
 export function StatStrip({items}:{items:{label:string;value:ReactNode;detail?:string}[]}){return <div className="stat-strip">{items.map(x=><div className="stat-cell" key={x.label}><span>{x.label}</span><strong>{x.value}</strong>{x.detail&&<small>{x.detail}</small>}</div>)}</div>}
 
 export function OptionsMenu({value,onChange,label='文本选项'}:{value:TextOptions;onChange:(next:TextOptions)=>void;label?:string}){

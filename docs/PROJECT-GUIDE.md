@@ -42,6 +42,7 @@
 | `handlers_results.go` | 成绩提交（比赛编号校验 + 结束宽限期）、查询、排名、导出 |
 | `handlers_classes.go` | 班级/学生、Excel 导入、按比赛编号公开名单、学生与班级分析 |
 | `handlers_integration.go` | ClassOrbit 集成配置读写（存 `app_meta`，优先于环境变量） |
+| `handlers_site.go` | 系统外观配置：网站标题、副标题、ICP 备案号（存 `app_meta`，公开只读 + 管理员写入） |
 | `class_system.go` | ClassOrbit 名单同步（Bearer 共享密钥、ETag、全量对账、软停用） |
 | `text_options.go` | 文本选项 JSON 模型与旧数据兼容解析 |
 | `util.go` | JSON 响应、错误体、请求体限制、路径参数 |
@@ -55,6 +56,7 @@
 | `main.tsx` / `App.tsx` | 入口、BrowserRouter、7 条路由（页面全部懒加载） |
 | `lib/api.ts` | `api()` 统一请求（自动带 `x-admin-token`、401 清 token）、`wsURL()` |
 | `lib/types.ts` | 领域类型（Article/Competition/Result/ClassItem/Student/Teacher） |
+| `lib/site.tsx` | 站点外观：`SiteProvider` 启动时拉取 `/api/site`，提供标题/副标题/备案号与刷新方法 |
 | `lib/textOptions.ts` | **文本选项引擎**：类型、默认值、菜单元数据、文章变换、判定等价、旧数据归一 |
 | `lib/typing.ts` | 打字缓冲区纯函数：稀疏 buffer、插入/退格、计数（可传判定器）、滚动跟随 |
 | `components/ui.tsx` | Button/Input/Field/Panel/Badge/Empty/Modal/AppSelect/StatStrip/**OptionsMenu** |
@@ -63,7 +65,7 @@
 | `pages/Admin.tsx` | 工作台外壳：侧栏 6 模块、改密、退出、toast |
 | `pages/StudentLogin.tsx` | 学生入口：比赛编号 → 班级/名单选人或手填 |
 | `pages/Compete.tsx` | 赛场：IME 输入、计时、WebSocket、断点恢复、提交重试 |
-| `pages/admin/*.tsx` | 文章、班级、竞赛、成绩、教师、集成六个模块 |
+| `pages/admin/*.tsx` | 文章、班级、竞赛、成绩、教师、名单来源、系统配置七个模块 |
 
 ### 根目录
 
@@ -211,7 +213,27 @@ go run .
 - 前端：`node --test tests/*.test.mjs`（打字缓冲区 6 项 + 文本选项 7 项：默认值、label/hint 等长、去符号、去换行、符号等价、旧数据归一、拼音跳过标点）。
 - 端到端自检（本地起服务后）：`/api/health` → 初始化 → 登录 → 建文章/竞赛 → 按编号查赛 → 学生 WS 加入 → 教师 WS 收到名单 → 提交成绩 → 结果排名。
 
-## 14. 本次改动（2026-10）
+## 14. 最新改动：系统配置与分页（未发布）
+
+### 分页
+竞赛历史与成绩明细表改为每页 10 条，底部显示「共 N 条 · 第 X / Y 页」并提供上一页/下一页；筛选条件或删除导致条数变化时页码自动收敛，不会出现空页。数据仍在单次请求内取回并在前端切片，服务端接口不变。
+
+### 系统配置（外观）
+侧栏新增「系统配置」（仅管理员可见），可修改：
+
+| 字段 | 说明 |
+| --- | --- |
+| 网站标题 | 侧栏品牌、登录页标题、浏览器标签标题，必填，≤40 字符 |
+| 网站副标题 | 侧栏品牌下方小字，可留空，≤60 字符 |
+| ICP 备案号 | 页脚显示，留空则不显示；**链接固定为 https://beian.miit.gov.cn/**，前端不允许自定义跳转地址 |
+
+- 存储：`app_meta` 的 `site_title` / `site_tagline` / `icp_number`，无需改表；重启后由 `loadSiteConfig` 读回。
+- 接口：`GET /api/site` 公开（登录前就要渲染品牌与页脚），`PUT /api/site` 仅管理员。
+- 默认值：标题 `KeySprint`、副标题 `键跃竞赛管理`、备案号**为空**（项目不再内置特定备案号，部署后自行填写）。
+- 保存后立即生效：前端通过 Provider 的 `refresh()` 更新侧栏、登录页与页脚，无需刷新页面。
+
+## 15. 上一批改动：v1.6.0（2026-10）
+
 
 **新增**：竞赛文本选项（四项、JSON 存储、旧数据/旧客户端兼容、共用判定器）；教师 WS 一次性 ticket；`ALLOWED_ORIGINS`；静态资源缓存头。
 

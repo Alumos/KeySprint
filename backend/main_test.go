@@ -30,7 +30,9 @@ func testApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", classSystemETags: map[string]string{}, timers: map[int64]*time.Timer{}}
+	a := &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", classSystemETags: map[string]string{}, timers: map[int64]*time.Timer{}}
+	a.loadSiteConfig()
+	return a
 }
 
 func request(t *testing.T, h http.Handler, method, path, body, token string) (int, map[string]any) {
@@ -589,5 +591,56 @@ func TestWebsocketRejectsMissingCredentials(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("cross origin: %d", w.Code)
+	}
+}
+
+func TestSiteConfigDefaultsAndUpdate(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	status, site := request(t, h, "GET", "/api/site", "", "")
+	if status != http.StatusOK || site["title"] != "KeySprint" || site["icp"] != "" {
+		t.Fatalf("default site: %d %v", status, site)
+	}
+	token := loginTeacher(t, h)
+	status, out := request(t, h, "PUT", "/api/site", `{"title":"鱼跃打字","tagline":"课堂打字竞赛","icp":"苏ICP备12345678号-1"}`, token)
+	if status != http.StatusOK || out["success"] != true {
+		t.Fatalf("update site: %d %v", status, out)
+	}
+	status, site = request(t, h, "GET", "/api/site", "", "")
+	if status != http.StatusOK || site["title"] != "鱼跃打字" || site["tagline"] != "课堂打字竞赛" || site["icp"] != "苏ICP备12345678号-1" {
+		t.Fatalf("updated site: %d %v", status, site)
+	}
+	var stored string
+	if err := a.db.QueryRow("SELECT value FROM app_meta WHERE key='icp_number'").Scan(&stored); err != nil || stored != "苏ICP备12345678号-1" {
+		t.Fatalf("stored icp: %q %v", stored, err)
+	}
+	if status, _ := request(t, h, "PUT", "/api/site", `{"title":"   "}`, token); status != http.StatusBadRequest {
+		t.Fatalf("empty title: %d", status)
+	}
+	longTitle := strings.Repeat("长", maxSiteTitleRunes+1)
+	if status, _ := request(t, h, "PUT", "/api/site", fmt.Sprintf(`{"title":%q}`, longTitle), token); status != http.StatusBadRequest {
+		t.Fatalf("long title: %d", status)
+	}
+	// Startup reload keeps the saved appearance after a restart.
+	a.loadSiteConfig()
+	if a.currentSite().Title != "鱼跃打字" || a.currentSite().ICP != "苏ICP备12345678号-1" {
+		t.Fatalf("reload: %#v", a.currentSite())
+	}
+}
+
+func TestSiteUpdateRequiresAdmin(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	adminToken := loginTeacher(t, h)
+	if status, out := request(t, h, "POST", "/api/teachers", `{"Username":"teacher2","Password":"secret1","DisplayName":"普通教师"}`, adminToken); status != http.StatusOK {
+		t.Fatalf("create teacher: %d %v", status, out)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher2","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	if status, _ := request(t, h, "PUT", "/api/site", `{"title":"越权修改"}`, token); status != http.StatusForbidden {
+		t.Fatalf("non-admin update: %d", status)
+	}
+	if status, _ := request(t, h, "GET", "/api/site", "", ""); status != http.StatusOK {
+		t.Fatalf("public site read: %d", status)
 	}
 }

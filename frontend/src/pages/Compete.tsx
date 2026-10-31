@@ -22,6 +22,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { Badge, Button, Modal, StatStrip } from "../components/ui";
 import { api, json, wsURL } from "../lib/api";
+import { useSite } from "../lib/site";
 import type { Article, Competition } from "../lib/types";
 import {
   applyTextOptions,
@@ -93,6 +94,7 @@ const fmt = (n: number) =>
 
 export default function Compete() {
   const nav = useNavigate();
+  const { site } = useSite();
   const studentId = sessionStorage.getItem("studentId") || "";
   const studentName = sessionStorage.getItem("studentName") || "";
   const code = sessionStorage.getItem("competeCode") || "";
@@ -532,7 +534,7 @@ export default function Compete() {
       <header className="race-topbar">
         <div className="race-brand">
           <Keyboard size={18} />
-          <strong>KeySprint</strong>
+          <strong>{site.title}</strong>
           <span>{comp?.article_title || "拼音打字竞赛"}</span>
         </div>
         <div className="race-user">

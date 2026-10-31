@@ -35,6 +35,9 @@ type app struct {
 	classSystemToken   string
 	classSystemTimeout time.Duration
 	classSource        string
+	siteTitle          string
+	siteTagline        string
+	icpNumber          string
 	allowedOrigins     []string
 	classSystemETags   map[string]string
 	configMu           sync.RWMutex
@@ -105,6 +108,7 @@ func main() {
 		timers:             map[int64]*time.Timer{},
 	}
 	_ = a.loadIntegrationConfig()
+	a.loadSiteConfig()
 	a.restoreTimers()
 	srv := &http.Server{Addr: getenv("ADDR", ":8080"), Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 75 * time.Second}
 	log.Printf("KeySprint %s (%s) listening on %s", version, commit, srv.Addr)
@@ -273,6 +277,7 @@ func (a *app) routes() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version, "commit": commit})
 	})
+	mux.HandleFunc("GET /api/site", a.getSite)
 	mux.HandleFunc("GET /api/setup/status", a.setupStatus)
 	mux.HandleFunc("POST /api/setup/init", a.setupInit)
 	mux.HandleFunc("POST /api/admin/login", a.login)
@@ -289,6 +294,7 @@ func (a *app) routes() http.Handler {
 	secured := http.NewServeMux()
 	secured.HandleFunc("GET /api/session", a.session)
 	secured.HandleFunc("POST /api/ws-ticket", a.createWebsocketTicket)
+	secured.HandleFunc("PUT /api/site", a.updateSite)
 	secured.HandleFunc("GET /api/teachers", a.getTeachers)
 	secured.HandleFunc("POST /api/teachers", a.createTeacher)
 	secured.HandleFunc("DELETE /api/teachers/{id}", a.deleteTeacher)

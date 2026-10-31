@@ -1,6 +1,6 @@
 import { BarChart3, Clipboard, Play, Plus, Square, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppSelect, Badge, Button, Empty, Field, Input, Modal, OptionsMenu, Panel, PanelHeader, StatStrip } from '../../components/ui'
+import { AppSelect, Badge, Button, Empty, Field, Input, Modal, OptionsMenu, Pagination, Panel, PanelHeader, StatStrip } from '../../components/ui'
 import { api, json, wsURL } from '../../lib/api'
 import { DEFAULT_TEXT_OPTIONS, countEnabledOptions, enabledOptionLabels, resolveTextOptions } from '../../lib/textOptions'
 import type { Article, Competition, Student } from '../../lib/types'
@@ -24,6 +24,8 @@ function optionsOf(comp: Competition) {
   return resolveTextOptions(comp)
 }
 
+const PAGE_SIZE = 10
+
 export default function CompetitionsView({
   notify,
   openResults,
@@ -42,6 +44,7 @@ export default function CompetitionsView({
   const [confirm, setConfirm] = useState<Confirmation | null>(null)
   const [creating, setCreating] = useState(false)
   const [executing, setExecuting] = useState(false)
+  const [historyPage, setHistoryPage] = useState(1)
   const creatingGuard = useRef(false)
   const requestID = useRef(newRequestID())
 
@@ -170,6 +173,10 @@ export default function CompetitionsView({
 
   const active = items.filter(item => item.status !== 'stopped')
   const running = items.filter(item => item.status === 'running')
+  // The history table grows with every class; page it so the console stays short.
+  const historyPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
+  const safeHistoryPage = Math.min(historyPage, historyPages)
+  const pagedHistory = items.slice((safeHistoryPage - 1) * PAGE_SIZE, safeHistoryPage * PAGE_SIZE)
 
   return <div className="admin-page">
     <StatStrip items={[
@@ -232,7 +239,7 @@ export default function CompetitionsView({
       <PanelHeader title="竞赛历史" description="所有已创建竞赛及其状态"/>
       <div className="table-wrap">{items.length ? <table className="data-table">
         <thead><tr><th>文章</th><th>编号</th><th>状态</th><th>文本选项</th><th>创建时间</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
-        <tbody>{items.map(comp => {
+        <tbody>{pagedHistory.map(comp => {
           const optionState = optionsOf(comp)
           const optionCount = countEnabledOptions(optionState)
           return <tr key={comp.id}>
@@ -246,6 +253,7 @@ export default function CompetitionsView({
           </tr>
         })}</tbody>
       </table> : <Empty title="暂无竞赛记录"/>}</div>
+      <Pagination page={safeHistoryPage} pageSize={PAGE_SIZE} total={items.length} onPageChange={setHistoryPage}/>
     </Panel>
 
     <Modal open={!!showPeople} onOpenChange={value => !value && setShowPeople(null)} title="已进入比赛的学生" description={`${showPeople?.article_title || ''} · 实时更新`}>
