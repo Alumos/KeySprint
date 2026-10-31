@@ -2,7 +2,8 @@ name: keysprint
 
 services:
   keysprint:
-    image: "${KEYSPRINT_IMAGE:-ghcr.milu.moe/alumos/keysprint}:${KEYSPRINT_TAG:-1.2.0}"
+    # 默认跟随最新稳定构建，避免默认 tag 过期；生产部署建议在 .env 中固定完整版本（例如 1.6.0）。
+    image: "${KEYSPRINT_IMAGE:-ghcr.milu.moe/alumos/keysprint}:${KEYSPRINT_TAG:-latest}"
     pull_policy: always
     restart: unless-stopped
     ports:
