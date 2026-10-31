@@ -143,7 +143,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: keysprint-windows-x64
-          path: dist-windows/keysprint-*-windows-x64.zip
+          # Upload the folder contents (not the inner zip) so downloading the
+          # artifact and unzipping it once yields the runnable files directly.
+          path: dist-windows/KeySprint-Windows-x64/*
           if-no-files-found: error
           retention-days: 30
 
@@ -181,4 +183,7 @@ jobs:
         shell: bash
         run: |
           tag="$GITHUB_REF_NAME"
-          gh release upload "$tag" release-assets/keysprint-*-windows-x64.zip --clobber
+          version="${tag#v}"
+          cd release-assets
+          zip -r -q "keysprint-${version}-windows-x64.zip" .
+          gh release upload "$tag" "keysprint-${version}-windows-x64.zip" --clobber

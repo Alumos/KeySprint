@@ -71,7 +71,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.7.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.8.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ### ClassOrbit 8080 + KeySprint 8081
 
@@ -112,7 +112,7 @@ docker compose -f compose.vps.yaml ps
 
 机房/教室没有云服务器、也不允许安装 Docker 时，用发布页的 Windows 便携包（`keysprint-<版本>-windows-x64.zip`，amd64）把教师机变成课堂服务器：
 
-1. 从 [Releases](https://github.com/Alumos/KeySprint/releases) 下载并**完整解压**到固定目录（例如 `D:\KeySprint`）；
+1. 从 [Releases](https://github.com/Alumos/KeySprint/releases) 下载并解压到固定目录（例如 `D:\KeySprint`）；zip 是扁平的，**解压一次就能看到 `keysprint.exe`**；
 2. 右键 `allow-firewall.bat` → 以管理员身份运行，放行 8080 端口；
 3. 双击 `start.bat` 启动（首次自动生成 `config.env` 与数据库），本机打开 `http://127.0.0.1:8080` 完成管理员初始化；
 4. 用 `ipconfig` 查出本机 IPv4，学生浏览器访问 `http://<教师机IP>:8080`，输入比赛编号即可；
@@ -137,7 +137,7 @@ docker compose -f compose.vps.yaml ps
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v1.7.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v1.8.0`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；

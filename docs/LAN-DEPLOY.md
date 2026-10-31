@@ -24,8 +24,8 @@
 
 | 来源 | 说明 |
 | --- | --- |
-| GitHub Release 附件 | 下载 `keysprint-<版本>-windows-x64.zip`；教育专网访问 GitHub 可能受限，可用 U 盘/国内网盘转存 |
-| Actions artifact | 每次 push 都会构建，名 `keysprint-windows-x64`；登录 GitHub → Actions → 对应运行 → Artifacts 下载 |
+| GitHub Release 附件 | 下载 `keysprint-<版本>-windows-x64.zip`；**压缩包是扁平的，解压一次就能看到 `keysprint.exe`**；教育专网访问 GitHub 可能受限，可用 U 盘/国内网盘转存 |
+| Actions artifact | 每次 push 都会构建，名 `keysprint-windows-x64`；登录 GitHub → Actions → 对应运行 → Artifacts 下载。GitHub 会额外包一层 zip，但里面就是文件本身，**同样只解压一次** |
 
 包内容（约 10–12 MB）：
 

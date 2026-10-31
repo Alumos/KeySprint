@@ -1,6 +1,6 @@
 # KeySprint 项目说明（架构 / 开发 / 部署）
 
-> 面向本地开发与自托管部署的中文说明。当前版本：`VERSION` 文件（1.7.0），代码基线 `main`。
+> 面向本地开发与自托管部署的中文说明。当前版本：`VERSION` 文件（1.8.0），代码基线 `main`。
 > 部署形态：一台国内 VPS 上 Docker 单容器（HTTP 某端口）→ 腾讯云 EdgeOne CDN 加速并终结 HTTPS → HTTP 回源。
 
 ## 1. 一句话架构
@@ -218,7 +218,7 @@ go run .
 - 前端：`node --test tests/*.test.mjs`（打字缓冲区 6 项 + 文本选项 7 项：默认值、label/hint 等长、去符号、去换行、符号等价、旧数据归一、拼音跳过标点）。
 - 端到端自检（本地起服务后）：`/api/health` → 初始化 → 登录 → 建文章/竞赛 → 按编号查赛 → 学生 WS 加入 → 教师 WS 收到名单 → 提交成绩 → 结果排名。
 
-## 14. 本次改动：系统配置与分页（v1.7.0）
+## 14. 改动记录：系统配置与分页（v1.7.0）
 
 ### 分页
 竞赛历史与成绩明细表改为每页 10 条，底部显示「共 N 条 · 第 X / Y 页」并提供上一页/下一页；筛选条件或删除导致条数变化时页码自动收敛，不会出现空页。数据仍在单次请求内取回并在前端切片，服务端接口不变。
@@ -237,7 +237,7 @@ go run .
 - 默认值：标题 `KeySprint`、副标题 `键跃竞赛管理`、备案号**为空**（项目不再内置特定备案号，部署后自行填写）。
 - 保存后立即生效：前端通过 Provider 的 `refresh()` 更新侧栏、登录页与页脚，无需刷新页面。
 
-## 15. 上一批改动：v1.6.0（2026-10）
+## 15. 改动记录：v1.6.0（2026-10）
 
 
 **新增**：竞赛文本选项（四项、JSON 存储、旧数据/旧客户端兼容、共用判定器）；教师 WS 一次性 ticket；`ALLOWED_ORIGINS`；静态资源缓存头。
@@ -258,8 +258,16 @@ go run .
 ```
 
 - 产物：GitHub Release 附件 / Actions artifact `keysprint-<版本>-windows-x64.zip`；由 `scripts/package-windows.ps1` 在 `windows-latest` 原生 amd64 上构建（`CGO_ENABLED=0`，无 QEMU、无 arm64）。
+- 压缩包为**扁平结构**：用 `ZipFile.CreateEntryFromFile` 按相对路径写入，条目直接是 `keysprint.exe` / `web/`，解压一次即见文件；artifact 上传的是打包目录内容，下载解压一次同样直接得到文件。
 - 包内：`keysprint.exe`、`web/`、`start.bat`、`stop.bat`、`allow-firewall.bat`、`install-autostart.bat`、`remove-autostart.bat`、`config.env.example`、`README.txt`。
 - `start.bat` 首次运行自动生成 `config.env`（随机 `JWT_SECRET`、`ADDR=:8080`、`TZ`）与 `data/`、`logs/`；此后读取该文件，日志重定向到 `logs\keysprint.log`。
 - 运行时零外网依赖：前端全部本地资源，无 CDN/字体外链；内网无需备案号（系统配置留空）。
 - 已知约束：教师机不能休眠；IP 需固定；学生端浏览器需近两年 Chrome/Edge；非安全上下文下的复制已由 `lib/clipboard.ts` 兜底。
 - 镜像改为 `linux/amd64` 单架构后，CI 不再需要 QEMU；如需 arm64 可在 `docker buildx` 中自行加回。
+
+## 17. 本次改动：Windows 便携包与单架构镜像（v1.8.0）
+
+- 新增 Windows 免 Docker 便携包产物：`scripts/package-windows.ps1` 在 `windows-latest` 原生 amd64 构建，zip 为**扁平结构**（解压一次即得 `keysprint.exe`、`web/` 与脚本），打 Tag 时自动附到 Release，每次 push 作为 Actions artifact 上传。
+- 新增 `deploy/windows/` 启动脚本与 [LAN-DEPLOY.md](LAN-DEPLOY.md) 局域网部署指南；`.bat` 打包时转 GBK、`.ps1` 加 UTF-8 BOM，避免中文乱码。
+- 容器镜像改为 `linux/amd64` 单架构，CI 移除 QEMU（部署目标均为 amd64）。
+- 修复内网 `http://IP` 非安全上下文下「复制比赛编号」失效：`lib/clipboard.ts` 回退 `execCommand`，已用真实鼠标点击验证。

@@ -84,7 +84,23 @@ $versionText = "KeySprint $Version`r`ncommit $Commit`r`nbuilt $(Get-Date -Format
 $zip = Join-Path $OutputDirectory "keysprint-$Version-windows-x64.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Write-Host "==> packaging $zip"
-Compress-Archive -Path $staging -DestinationPath $zip -CompressionLevel Optimal
+# Flat archive: entries start at the zip root (keysprint.exe, web/...), so the
+# teacher unzips exactly once instead of unpacking nested wrapper folders.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+$archive = [System.IO.Compression.ZipFile]::Open($zip, 'Create')
+try {
+  foreach ($dir in Get-ChildItem $staging -Recurse -Directory) {
+    $relative = $dir.FullName.Substring($staging.Length + 1).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+    if ($relative) { [void]$archive.CreateEntry($relative + '/') }
+  }
+  foreach ($file in Get-ChildItem $staging -Recurse -File) {
+    $relative = $file.FullName.Substring($staging.Length + 1).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+    [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, $relative, [System.IO.Compression.CompressionLevel]::Optimal)
+  }
+} finally {
+  $archive.Dispose()
+}
 
 $size = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 Write-Host "done: $zip ($size MB)"

@@ -7,8 +7,9 @@ KeySprint 打字竞赛 - Windows 局域网部署说明（免 Docker）
   外网不能用（比如 GitHub）完全不影响使用。
 
 二、首次部署（约 5 分钟）
-  1. 把压缩包完整解压到固定目录，例如 D:\KeySprint
-     （不要在压缩包里直接双击，web 目录会缺失，无法启动）
+  1. 把压缩包解压到固定目录，例如 D:\KeySprint
+     （zip 是扁平的：只解压一次就能看到 keysprint.exe 等文件，没有多余目录层级；
+      不要在压缩包里直接双击运行，web 目录缺失会启动失败）
   2. 双击 allow-firewall.bat，选择“以管理员身份运行”，放行 8080 端口
   3. 双击 start.bat 启动服务；这个黑色窗口保持打开就是服务在运行
      - 首次运行会自动生成 config.env（含随机 JWT_SECRET）和 data 目录

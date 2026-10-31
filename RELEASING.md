@@ -46,7 +46,7 @@ KeySprint 使用 Semantic Versioning，唯一版本源为根目录 [`VERSION`](V
 | 产物 | 位置 | 说明 |
 | --- | --- | --- |
 | 容器镜像 | `ghcr.io/alumos/keysprint` | `linux/amd64`；Tag 生成 `X.Y.Z`/`X.Y`/`X`，main 生成 `latest`/`main`/`sha-*` |
-| Windows 便携包 | GitHub Release 附件 + Actions artifact | `keysprint-<版本>-windows-x64.zip`，解压即用，不需要 Docker 与 .NET/VC++ 运行库 |
+| Windows 便携包 | GitHub Release 附件 + Actions artifact | `keysprint-<版本>-windows-x64.zip`，**扁平结构（解压一次即得文件）**，不需要 Docker 与 .NET/VC++ 运行库 |
 
 Windows 包由 `scripts/package-windows.ps1` 在 `windows-latest` 上原生构建（GOARCH=amd64，CGO 关闭），内容为 `keysprint.exe`、`web/` 前端静态文件、启动/防火墙/开机自启脚本与中文部署说明；`data/` 与 `config.env` 在首次运行时生成。
 
