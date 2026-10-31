@@ -1,4 +1,4 @@
-import { Eye, FileText, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
+import { Eye, Loader2, Pencil, Plus, Sparkles, Trash2, Upload } from 'lucide-react'
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import { AppSelect, Badge, Button, Empty, Field, Input, Modal, Pagination, Panel, PanelHeader, StatStrip } from '../../components/ui'
 import { api, json } from '../../lib/api'
@@ -173,7 +173,7 @@ export default function ArticlesView({ notify }: { notify: (message: string) => 
         <thead><tr><th style={{ width: 70 }}>选用</th><th>标题</th><th>字数</th><th>上传教师</th><th>导入时间</th><th style={{ textAlign: 'right' }}>操作</th></tr></thead>
         <tbody>{paged.map(article => <tr key={article.id}>
           <td>{article.mine ? <Badge>我的</Badge> : <input type="checkbox" checked={!!article.picked} onChange={event => pick(article, event.target.checked)} title="加入我的选用"/>}</td>
-          <td className="td-title"><FileText size={13} style={{ verticalAlign: -2, marginRight: 7 }}/>{article.title}{isAI(article) && <Badge tone="blue">AI</Badge>}</td>
+          <td className="td-title">{article.title}{isAI(article) && <Badge tone="blue">AI</Badge>}</td>
           <td>{charsOf(article.content)}</td>
           <td>{article.mine ? '我' : article.uploader || '-'}</td>
           <td>{article.created_at}</td>
@@ -203,7 +203,7 @@ export default function ArticlesView({ notify }: { notify: (message: string) => 
       <div className="article-preview">{preview?.content}</div>
     </Modal>
     <Modal open={!!confirm} onOpenChange={value => !value && setConfirm(null)} title="删除文章" description={`确定删除《${confirm?.title || ''}》吗？`} footer={<><Button variant="outline" onClick={() => setConfirm(null)}>取消</Button><Button variant="danger" onClick={remove}>删除</Button></>}><p style={{ fontSize: 13 }}>已被竞赛使用的文章不能删除。</p></Modal>
-    <Modal open={aiOpen} onOpenChange={setAiOpen} title="AI 生成文章" description="按主题与字数生成范文，生成后直接写入文章库" footer={<><Button variant="outline" onClick={() => setAiOpen(false)}>取消</Button><Button onClick={generate} disabled={generating || !aiTopic.trim()}>{generating ? '正在生成，请稍候...' : '开始生成'}</Button></>}>
+    <Modal open={aiOpen} onOpenChange={setAiOpen} title="AI 生成文章" description="按主题与字数生成范文，生成后直接写入文章库" footer={<><Button variant="outline" onClick={() => setAiOpen(false)}>取消</Button><Button onClick={generate} disabled={generating || !aiTopic.trim()}>{generating ? <Loader2 size={14} className="spin"/> : <Sparkles size={14}/>}{generating ? '正在生成，请稍候...' : '开始生成'}</Button></>}>
       <div className="stack">
         <Field label="文章主题" hint="例如：秋天的校园、拔河比赛、家乡的小河"><Input value={aiTopic} onChange={event => setAiTopic(event.target.value)} placeholder="输入一个主题" autoFocus/></Field>
         <Field label="体裁 / 风格"><AppSelect value={aiStyle} onValueChange={setAiStyle} items={STYLE_ITEMS}/></Field>

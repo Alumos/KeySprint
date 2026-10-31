@@ -25,7 +25,7 @@ test('default options leave the article untouched', () => {
 });
 
 test('every option label and hint is the same length so the list stays aligned', () => {
-  assert.equal(TEXT_OPTION_ITEMS.length, 4);
+  assert.equal(TEXT_OPTION_ITEMS.length, 5);
   for (const item of TEXT_OPTION_ITEMS) {
     assert.equal(item.label.length, 4, item.label);
     assert.equal(item.hint.length, 8, item.hint);
@@ -71,9 +71,10 @@ test('legacy payloads without text_options fall back to pinyin_enabled', () => {
     pinyin: true,
   });
   assert.deepEqual(
-    resolveTextOptions({ text_options: { pinyin: false, stripSymbols: true, unifySymbols: true, stripBreaks: true } }),
-    { pinyin: false, stripSymbols: true, unifySymbols: true, stripBreaks: true },
+    resolveTextOptions({ text_options: { pinyin: false, stripSymbols: true, unifySymbols: true, stripBreaks: true, segmentWords: true } }),
+    { pinyin: false, stripSymbols: true, unifySymbols: true, stripBreaks: true, segmentWords: true },
   );
+  assert.equal(resolveTextOptions({ pinyin_enabled: true }).segmentWords, false);
 });
 
 test('pinyin hints are skipped for punctuation and whitespace', () => {

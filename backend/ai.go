@@ -18,6 +18,11 @@ const (
 	defaultAIModel     = "gpt-6-luna"
 	defaultAIReasoning = "medium"
 
+	// Probed model ids are cached in app_meta so the dropdown survives page
+	// reloads and restarts; a successful probe replaces the whole cache.
+	aiModelsCacheKey = "ai_models_cache"
+	aiModelsCacheMax = 64
+
 	aiMaxResponseBytes = 1 << 20
 	aiRequestTimeout   = 120 * time.Second
 	aiMinBodyChars     = 100
@@ -63,6 +68,12 @@ type aiGenerateInput struct {
 	MaxChars int
 }
 
+type aiModelsCache struct {
+	Base   string   `json:"base"`
+	At     string   `json:"at"`
+	Models []string `json:"models"`
+}
+
 var aiReasoningLevels = map[string]bool{"low": true, "medium": true, "high": true}
 
 func validReasoningEffort(value string) bool {
@@ -93,6 +104,59 @@ func (a *app) loadAIConfig() {
 	if !validReasoningEffort(a.aiReasoningEffort) {
 		a.aiReasoningEffort = defaultAIReasoning
 	}
+	a.aiModels, a.aiModelsBase, a.aiModelsAt = nil, "", ""
+	var cached string
+	if err := a.db.QueryRow("SELECT value FROM app_meta WHERE key=?", aiModelsCacheKey).Scan(&cached); err == nil {
+		var parsed aiModelsCache
+		if json.Unmarshal([]byte(cached), &parsed) == nil {
+			a.aiModels = sanitizeAIModels(parsed.Models)
+			a.aiModelsBase = parsed.Base
+			a.aiModelsAt = parsed.At
+		}
+	}
+}
+
+// aiModelsSnapshot returns the last probed list; it is display-only metadata,
+// never used to pick a model automatically.
+func (a *app) aiModelsSnapshot() aiModelsCache {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+	return aiModelsCache{Base: a.aiModelsBase, At: a.aiModelsAt, Models: append([]string(nil), a.aiModels...)}
+}
+
+// sanitizeAIModels keeps the cache small and stable: trimmed, unique, bounded
+// in both count and length so a hostile gateway cannot bloat the database.
+func sanitizeAIModels(models []string) []string {
+	seen := make(map[string]bool, len(models))
+	out := make([]string, 0, len(models))
+	for _, raw := range models {
+		name := strings.TrimSpace(raw)
+		if name == "" || len([]rune(name)) > 120 || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+		if len(out) >= aiModelsCacheMax {
+			break
+		}
+	}
+	return out
+}
+
+// saveAIModelsCache replaces the cached list after a successful probe.
+func (a *app) saveAIModelsCache(ctx context.Context, base string, models []string) error {
+	cache := aiModelsCache{Base: base, At: time.Now().Format("2006-01-02 15:04"), Models: models}
+	raw, err := json.Marshal(cache)
+	if err != nil {
+		return err
+	}
+	if _, err = a.db.ExecContext(ctx, "INSERT INTO app_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", aiModelsCacheKey, string(raw)); err != nil {
+		return err
+	}
+	a.configMu.Lock()
+	a.aiModels, a.aiModelsBase, a.aiModelsAt = cache.Models, cache.Base, cache.At
+	a.configMu.Unlock()
+	return nil
 }
 
 func (a *app) aiConfigSnapshot() aiConfig {

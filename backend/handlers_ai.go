@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,11 +11,14 @@ import (
 )
 
 type aiSettings struct {
-	BaseURL         string `json:"baseUrl"`
-	Model           string `json:"model"`
-	ReasoningEffort string `json:"reasoningEffort"`
-	HasKey          bool   `json:"hasKey"`
-	KeyHint         string `json:"keyHint"`
+	BaseURL         string   `json:"baseUrl"`
+	Model           string   `json:"model"`
+	ReasoningEffort string   `json:"reasoningEffort"`
+	HasKey          bool     `json:"hasKey"`
+	KeyHint         string   `json:"keyHint"`
+	Models          []string `json:"models"`
+	ModelsBase      string   `json:"modelsBase"`
+	ModelsUpdatedAt string   `json:"modelsUpdatedAt"`
 }
 
 func maskAPIKey(key string) string {
@@ -32,12 +36,16 @@ func (a *app) getAIConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := a.aiConfigSnapshot()
+	cached := a.aiModelsSnapshot()
 	writeJSON(w, http.StatusOK, aiSettings{
 		BaseURL:         cfg.BaseURL,
 		Model:           cfg.Model,
 		ReasoningEffort: cfg.ReasoningEffort,
 		HasKey:          cfg.APIKey != "",
 		KeyHint:         maskAPIKey(cfg.APIKey),
+		Models:          cached.Models,
+		ModelsBase:      cached.Base,
+		ModelsUpdatedAt: cached.At,
 	})
 }
 
@@ -120,12 +128,22 @@ func (a *app) probeAIModelsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	models, err := a.probeAIModels(ctx, a.aiConfigSnapshot())
+	cfg := a.aiConfigSnapshot()
+	models, err := a.probeAIModels(ctx, cfg)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models, "count": len(models)})
+	models = sanitizeAIModels(models)
+	// A successful probe is the only writer of the cache: it replaces whatever
+	// was stored before, so the dropdown always reflects the latest probe.
+	if err := a.saveAIModelsCache(ctx, cfg.BaseURL, models); err != nil {
+		log.Printf("缓存 AI 模型列表失败: %v", err)
+	}
+	cached := a.aiModelsSnapshot()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"models": models, "count": len(models), "base": cached.Base, "updatedAt": cached.At,
+	})
 }
 
 func (a *app) generateAIArticle(w http.ResponseWriter, r *http.Request) {

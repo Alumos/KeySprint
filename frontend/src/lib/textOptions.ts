@@ -7,6 +7,7 @@ export type TextOptions = {
   stripSymbols: boolean;
   unifySymbols: boolean;
   stripBreaks: boolean;
+  segmentWords: boolean;
 };
 
 export type TextOptionKey = keyof TextOptions;
@@ -16,6 +17,7 @@ export const DEFAULT_TEXT_OPTIONS: TextOptions = {
   stripSymbols: false,
   unifySymbols: false,
   stripBreaks: false,
+  segmentWords: false,
 };
 
 // Labels are deliberately four characters each and hints eight: the menu is a
@@ -29,6 +31,7 @@ export const TEXT_OPTION_ITEMS: ReadonlyArray<{
   { key: "stripSymbols", label: "去除符号", hint: "隐藏标点只练文字" },
   { key: "unifySymbols", label: "符号统一", hint: "全半角标点同判定" },
   { key: "stripBreaks", label: "去除换行", hint: "合并段落去掉缩进" },
+  { key: "segmentWords", label: "分词输入", hint: "按词分组显示输入" },
 ];
 
 export function countEnabledOptions(options: TextOptions): number {
@@ -63,6 +66,7 @@ export function resolveTextOptions(
     stripSymbols: !!stored.stripSymbols,
     unifySymbols: !!stored.unifySymbols,
     stripBreaks: !!stored.stripBreaks,
+    segmentWords: !!stored.segmentWords,
   };
 }
 

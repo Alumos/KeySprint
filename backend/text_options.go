@@ -14,6 +14,7 @@ type textOptions struct {
 	StripSymbols bool `json:"stripSymbols"`
 	UnifySymbols bool `json:"unifySymbols"`
 	StripBreaks  bool `json:"stripBreaks"`
+	SegmentWords bool `json:"segmentWords"`
 }
 
 func defaultTextOptions() textOptions {
@@ -34,6 +35,7 @@ func parseTextOptions(raw string, pinyinEnabled int) textOptions {
 		StripSymbols bool  `json:"stripSymbols"`
 		UnifySymbols bool  `json:"unifySymbols"`
 		StripBreaks  bool  `json:"stripBreaks"`
+		SegmentWords bool  `json:"segmentWords"`
 	}
 	if err := json.Unmarshal([]byte(raw), &stored); err != nil {
 		options.Pinyin = pinyinEnabled != 0
@@ -47,6 +49,7 @@ func parseTextOptions(raw string, pinyinEnabled int) textOptions {
 	options.StripSymbols = stored.StripSymbols
 	options.UnifySymbols = stored.UnifySymbols
 	options.StripBreaks = stored.StripBreaks
+	options.SegmentWords = stored.SegmentWords
 	return options
 }
 

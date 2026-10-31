@@ -42,9 +42,10 @@
 | `handlers_results.go` | 成绩提交（比赛编号校验 + 结束宽限期）、查询、排名、导出 |
 | `handlers_classes.go` | 班级/学生、Excel 导入、按比赛编号公开名单、学生与班级分析 |
 | `handlers_integration.go` | ClassOrbit 集成配置读写（存 `app_meta`，优先于环境变量） |
-| `handlers_site.go` | 系统外观配置：网站标题、副标题、ICP 备案号（存 `app_meta`，公开只读 + 管理员写入） |
+| `handlers_site.go` | 系统外观配置：网站标题、副标题、ICP 备案号、界面字号百分比（存 `app_meta`，公开只读 + 管理员写入） |
 | `ai.go` | AI 文章生成：OpenAI 兼容客户端、模型探测、思考强度降级重试、提示词与结果解析（JSON/纯文本/代码块） |
 | `handlers_ai.go` | AI 配置读写（密钥掩码）、`POST /api/ai/models` 探测、`POST /api/ai/generate` 生成并入库（`source='ai'`） |
+| `segment.go` | 中文分词：go-ego/gse 内嵌 jieba 词典（懒加载）、按 Han 词元计算词起点、内存缓存、`POST /api/segment`（公开但需有效比赛编号） |
 | `class_system.go` | ClassOrbit 名单同步（Bearer 共享密钥、ETag、全量对账、软停用） |
 | `text_options.go` | 文本选项 JSON 模型与旧数据兼容解析 |
 | `util.go` | JSON 响应、错误体、请求体限制、路径参数 |
@@ -60,6 +61,7 @@
 | `lib/types.ts` | 领域类型（Article/Competition/Result/ClassItem/Student/Teacher） |
 | `lib/site.tsx` | 站点外观：`SiteProvider` 启动时拉取 `/api/site`，提供标题/副标题/备案号与刷新方法 |
 | `lib/textOptions.ts` | **文本选项引擎**：类型、默认值、菜单元数据、文章变换、判定等价、旧数据归一 |
+| `lib/segment.ts` | 分词边界请求与缓存（仅启用「分词输入」时调用 `/api/segment`） |
 | `lib/typing.ts` | 打字缓冲区纯函数：稀疏 buffer、插入/退格、计数（可传判定器）、滚动跟随 |
 | `components/ui.tsx` | Button/Input/Field/Panel/Badge/Empty/Modal/AppSelect/StatStrip/**OptionsMenu** |
 | `pages/Setup.tsx` | 首次管理员初始化 |
@@ -130,9 +132,9 @@
 - 赛场：`Compete.tsx` 处理 IME 组合事件、隐藏输入框、光标移动、250ms 计时、`localStorage` 断点恢复（400ms 防抖写入）、提交失败指数退避重试。
 - 计分口径：正确率 = 正确字数 ÷ 已输入字数；速度 = 正确字数 ÷ 用时（分钟）；进度只用于显示。
 
-## 7. 文本选项（本次新增）
+## 7. 文本选项
 
-竞赛创建处的「拼音提示」开关升级为「文本选项」按钮，点开是固定宽度多选列表；四个选项按竞赛持久化：
+竞赛创建处的「文本选项」按钮点开是固定宽度多选列表；五个选项按竞赛持久化：
 
 | 选项 | 语义 | 实现位置 |
 | --- | --- | --- |
@@ -140,6 +142,16 @@
 | 去除符号 | 隐藏标点与符号，只练文字（Unicode P/S 类） | 文章加载时删除 |
 | 符号统一 | 全角/半角标点、全角字母数字视为同一答案 | **只影响判定，不改写原文**（避免破坏 1.5、C++ 等） |
 | 去除换行 | 合并段落、去掉首尾缩进；中英混排时保留必要空格 | 文章加载时合并 |
+| 分词输入 | 按词分组显示：词间留空隙、当前词下方画线、顶部显示「当前词」 | 服务端分词 + 渲染层分组，不改变文字 |
+
+### 分词输入（v2.1）
+
+- 词库：`backend/segment.go` 使用 [go-ego/gse](https://github.com/go-ego/gse)（纯 Go、Apache-2.0、jieba 词库，当前 v1.1.0）。**不能用** `yanyiwu/gojieba`（CGO 封装 cppjieba，与 `CGO_ENABLED=0` 的 scratch 镜像/Windows 静态包冲突）；`wangbin/jiebago` 纯 Go 但 2020 年后停更。
+- 加载：`gse.NewEmbed("zh_s")` 内嵌简体词典（约 5MB，二进制相应变大），`sync.Once` 懒加载——没启用分词的课堂不付加载成本。
+- 接口：`POST /api/segment {code,text}`（公开，但要求比赛编号有效且状态为 waiting/running，单次 ≤8000 字）。学生端先按文本选项变换文章，再把最终文本发给服务端；相同文本命中 64 条内存缓存。
+- 边界规则：只把「以汉字开头的词元」作为新词起点，标点/空格附着在前一个词上，避免出现「，」单独成词；因此 HUD 显示前会去掉尾部标点。
+- 前端：`lib/segment.ts` 请求 + 客户端缓存；`Compete.tsx` 计算 `wordOf` 映射，渲染时给词首单元格加 `word-start`（词间距 12px）、当前词加 `in-word`（底部下划线，正确/错误时变色），顶部显示「当前词：xxx」。
+- 性质：纯显示提示，不改写文字、不影响正确率/速度口径；关闭选项或接口失败时自动退回普通显示。
 
 - 存储：`competitions.text_options`（JSON，新增选项不需要改表）；`pinyin_enabled` 继续写入以兼容旧页面。
 - 应用顺序：去换行 → 去符号 → 加载为可输入字符数组；`符号统一` 在比较字符时生效（计数、单元格颜色、提交成绩共用同一判定器）。
@@ -234,11 +246,13 @@ go run .
 | 网站标题 | 侧栏品牌、登录页标题、浏览器标签标题，必填，≤40 字符 |
 | 网站副标题 | 侧栏品牌下方小字，可留空，≤60 字符 |
 | ICP 备案号 | 页脚显示，留空则不显示；**链接固定为 https://beian.miit.gov.cn/**，前端不允许自定义跳转地址 |
+| 界面字号 | 75–150 的百分比，预设 100（= 设计基准，观感相当于旧版 125%）；保存后 `document.documentElement.style.zoom` 整体缩放，后台/赛场/弹窗一起放大缩小 |
 
-- 存储：`app_meta` 的 `site_title` / `site_tagline` / `icp_number`，无需改表；重启后由 `loadSiteConfig` 读回。
+- 存储：`app_meta` 的 `site_title` / `site_tagline` / `icp_number` / `ui_scale`，无需改表；重启后由 `loadSiteConfig` 读回（字号越界会被夹到 75–150）。
 - 接口：`GET /api/site` 公开（登录前就要渲染品牌与页脚），`PUT /api/site` 仅管理员。
 - 默认值：标题 `KeySprint`、副标题 `键跃竞赛管理`、备案号**为空**（项目不再内置特定备案号，部署后自行填写）。
 - 保存后立即生效：前端通过 Provider 的 `refresh()` 更新侧栏、登录页与页脚，无需刷新页面。
+- 缩放实现细节：`zoom` 下 `getBoundingClientRect()` 返回视觉像素、而内联 top/left 使用逻辑像素，Radix 弹层会整体漂移；`lib/zoom.ts` 在设置缩放时给 `getBoundingClientRect` 打一次补丁（结果除以当前 zoom），让浮动定位与布局坐标一致。已验证 100%/125%/150% 下模型下拉、文本选项、弹窗内下拉都对齐。
 
 ## 15. 改动记录：v1.6.0（2026-10）
 
@@ -278,6 +292,7 @@ go run .
 ## 18. 本次改动：AI 生成文章与文章库重构（v2.0.0）
 
 - 后端 `ai.go`/`handlers_ai.go`：OpenAI 兼容客户端（`/models` 探测、`/chat/completions` 生成），思考强度 `reasoning_effort` 不支持时自动降级重试；生成结果按 JSON → 代码块 → 纯文本三级解析并清洗；超时 120s、响应体 1 MiB 上限。
+- 模型缓存：探测成功后的列表连同接口地址、探测时间写入 `app_meta.ai_models_cache`（最多 64 个、单个 ≤120 字符），刷新页面或重启服务后下拉立即可用；**只有下一次探测成功才整表覆盖**，探测失败保留旧缓存。
 - 配置存 `app_meta`：`ai_base_url` / `ai_api_key` / `ai_model` / `ai_reasoning_effort`；GET 只返回末 4 位掩码，PUT 留空不覆盖密钥；全部接口仅管理员可用。
 - 文章新增 `source` 列（`manual` / `ai`），启动时幂等迁移；生成接口直接入库（`source='ai'`）。
 - 前端文章管理合并为单一文章库：上传教师 / 文章来源筛选、导入时间与字数排序、每页 10 条分页；AI 生成弹窗（主题/体裁/字数/额外要求）；系统配置新增 AI 面板（地址、密钥、模型 + 探测、思考强度）。

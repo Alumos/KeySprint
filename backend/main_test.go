@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 )
@@ -429,7 +430,7 @@ func TestTextOptionsRoundTrip(t *testing.T) {
 	request(t, h, "POST", "/api/articles", `{"title":"选项","content":"一二三，四。五"}`, token)
 
 	status, created := request(t, h, "POST", "/api/competition/create",
-		`{"articleId":1,"timeLimit":120,"customCode":"OPTS","textOptions":{"pinyin":false,"stripSymbols":true,"unifySymbols":true,"stripBreaks":false}}`, token)
+		`{"articleId":1,"timeLimit":120,"customCode":"OPTS","textOptions":{"pinyin":false,"stripSymbols":true,"unifySymbols":true,"stripBreaks":false,"segmentWords":true}}`, token)
 	if status != http.StatusOK || created["success"] != true {
 		t.Fatalf("create: %d %v", status, created)
 	}
@@ -441,7 +442,7 @@ func TestTextOptionsRoundTrip(t *testing.T) {
 		t.Fatalf("legacy pinyin projection = %v", comp["pinyin_enabled"])
 	}
 	options, ok := comp["text_options"].(map[string]any)
-	if !ok || options["pinyin"] != false || options["stripSymbols"] != true || options["unifySymbols"] != true || options["stripBreaks"] != false {
+	if !ok || options["pinyin"] != false || options["stripSymbols"] != true || options["unifySymbols"] != true || options["stripBreaks"] != false || options["segmentWords"] != true {
 		t.Fatalf("text options: %#v", comp["text_options"])
 	}
 
@@ -601,18 +602,19 @@ func TestSiteConfigDefaultsAndUpdate(t *testing.T) {
 	a := testApp(t)
 	h := a.routes()
 	status, site := request(t, h, "GET", "/api/site", "", "")
-	if status != http.StatusOK || site["title"] != "KeySprint" || site["icp"] != "" {
+	if status != http.StatusOK || site["title"] != "KeySprint" || site["icp"] != "" || site["ui_scale"] != float64(100) {
 		t.Fatalf("default site: %d %v", status, site)
 	}
 	token := loginTeacher(t, h)
-	status, out := request(t, h, "PUT", "/api/site", `{"title":"鱼跃打字","tagline":"课堂打字竞赛","icp":"苏ICP备12345678号-1"}`, token)
+	status, out := request(t, h, "PUT", "/api/site", `{"title":"鱼跃打字","tagline":"课堂打字竞赛","icp":"苏ICP备12345678号-1","ui_scale":120}`, token)
 	if status != http.StatusOK || out["success"] != true {
 		t.Fatalf("update site: %d %v", status, out)
 	}
 	status, site = request(t, h, "GET", "/api/site", "", "")
-	if status != http.StatusOK || site["title"] != "鱼跃打字" || site["tagline"] != "课堂打字竞赛" || site["icp"] != "苏ICP备12345678号-1" {
+	if status != http.StatusOK || site["title"] != "鱼跃打字" || site["tagline"] != "课堂打字竞赛" || site["icp"] != "苏ICP备12345678号-1" || site["ui_scale"] != float64(120) {
 		t.Fatalf("updated site: %d %v", status, site)
 	}
+
 	var stored string
 	if err := a.db.QueryRow("SELECT value FROM app_meta WHERE key='icp_number'").Scan(&stored); err != nil || stored != "苏ICP备12345678号-1" {
 		t.Fatalf("stored icp: %q %v", stored, err)
@@ -626,8 +628,14 @@ func TestSiteConfigDefaultsAndUpdate(t *testing.T) {
 	}
 	// Startup reload keeps the saved appearance after a restart.
 	a.loadSiteConfig()
-	if a.currentSite().Title != "鱼跃打字" || a.currentSite().ICP != "苏ICP备12345678号-1" {
+	if a.currentSite().Title != "鱼跃打字" || a.currentSite().ICP != "苏ICP备12345678号-1" || a.currentSite().UIScale != 120 {
 		t.Fatalf("reload: %#v", a.currentSite())
+	}
+	// Out-of-range scales are clamped instead of rejected, so a stale page or a
+	// typo can never leave the layout unusable.
+	request(t, h, "PUT", "/api/site", `{"title":"鱼跃打字","icp":"苏ICP备12345678号-1","ui_scale":999}`, token)
+	if _, clampedSite := request(t, h, "GET", "/api/site", "", ""); clampedSite["ui_scale"] != float64(maxUIScale) {
+		t.Fatalf("clamped ui scale: %v", clampedSite["ui_scale"])
 	}
 }
 
@@ -722,6 +730,33 @@ func TestAIProbeModels(t *testing.T) {
 	models, _ := out["models"].([]any)
 	if status != http.StatusOK || len(models) != 2 || models[0] != "alpha-model" || models[1] != "zeta-model" {
 		t.Fatalf("probe models: %d %v", status, out)
+	}
+
+	// The probed list is cached in app_meta and survives a config reload.
+	status, cfg := request(t, h, "GET", "/api/ai/config", "", token)
+	cached, _ := cfg["models"].([]any)
+	if status != http.StatusOK || len(cached) != 2 || cached[0] != "alpha-model" || cfg["modelsBase"] != upstream.URL+"/v1" || cfg["modelsUpdatedAt"] == "" {
+		t.Fatalf("cached models: %d %v", status, cfg)
+	}
+	a.loadAIConfig()
+	if reloaded := a.aiModelsSnapshot(); len(reloaded.Models) != 2 || reloaded.Base != upstream.URL+"/v1" {
+		t.Fatalf("cache after reload: %#v", reloaded)
+	}
+
+	// A second probe replaces, rather than appends to, the cache.
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"beta-only"}]}`)
+	}))
+	defer second.Close()
+	request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"`+second.URL+`/v1","apiKey":"test-key","model":"beta-only","reasoningEffort":"medium"}`, token)
+	if status, _ := request(t, h, "POST", "/api/ai/models", "", token); status != http.StatusOK {
+		t.Fatalf("second probe: %d", status)
+	}
+	_, cfg = request(t, h, "GET", "/api/ai/config", "", token)
+	cached, _ = cfg["models"].([]any)
+	if len(cached) != 1 || cached[0] != "beta-only" || cfg["modelsBase"] != second.URL+"/v1" {
+		t.Fatalf("replaced cache: %v", cfg)
 	}
 }
 
@@ -833,5 +868,63 @@ func TestParseGeneratedArticle(t *testing.T) {
 		if got.Title != tc.title || got.Chars != tc.chars {
 			t.Fatalf("%s: got title=%q chars=%d", tc.name, got.Title, got.Chars)
 		}
+	}
+}
+func TestWordStartsSegmentation(t *testing.T) {
+	text := "我们在操场上跑步。"
+	starts, err := wordStarts(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := utf8.RuneCountInString(text)
+	if len(starts) < 3 || starts[0] != 0 {
+		t.Fatalf("starts: %v", starts)
+	}
+	previous := -1
+	for _, start := range starts {
+		if start <= previous || start >= total {
+			t.Fatalf("starts not ascending: %v", starts)
+		}
+		previous = start
+	}
+	// The cache must return the same boundaries.
+	again, err := wordStarts(text)
+	if err != nil || len(again) != len(starts) {
+		t.Fatalf("cached starts: %v %v", again, err)
+	}
+	if empty, err := wordStarts(""); err != nil || len(empty) != 0 {
+		t.Fatalf("empty text: %v %v", empty, err)
+	}
+}
+
+func TestSegmentEndpointRequiresLiveCompetition(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	if status, _ := request(t, h, "POST", "/api/segment", `{"code":"NOPE","text":"测试文本"}`, ""); status != http.StatusForbidden {
+		t.Fatalf("unknown code: %d", status)
+	}
+	if status, _ := request(t, h, "POST", "/api/segment", `{"text":"测试文本"}`, ""); status != http.StatusForbidden {
+		t.Fatalf("missing code: %d", status)
+	}
+	request(t, h, "POST", "/api/articles", `{"title":"分段","content":"我们在操场上跑步。"}`, token)
+	_, created := request(t, h, "POST", "/api/competition/create",
+		`{"articleId":1,"timeLimit":120,"customCode":"SEG1","textOptions":{"pinyin":true,"segmentWords":true}}`, token)
+	competitionID, _ := created["id"].(float64)
+
+	status, out := request(t, h, "POST", "/api/segment", `{"code":"seg1","text":"我们在操场上跑步。"}`, "")
+	starts, ok := out["starts"].([]any)
+	if status != http.StatusOK || !ok || len(starts) < 3 {
+		t.Fatalf("segment: %d %v", status, out)
+	}
+	longText := strings.Repeat("字", segmentMaxRunes+1)
+	if status, _ := request(t, h, "POST", "/api/segment", fmt.Sprintf(`{"code":"SEG1","text":%q}`, longText), ""); status != http.StatusBadRequest {
+		t.Fatalf("oversized text: %d", status)
+	}
+
+	request(t, h, "POST", "/api/competition/start", fmt.Sprintf(`{"id":%d}`, int64(competitionID)), token)
+	request(t, h, "POST", "/api/competition/stop", fmt.Sprintf(`{"id":%d}`, int64(competitionID)), token)
+	if status, _ := request(t, h, "POST", "/api/segment", `{"code":"SEG1","text":"测试"}`, ""); status != http.StatusForbidden {
+		t.Fatalf("stopped competition: %d", status)
 	}
 }

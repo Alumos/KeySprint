@@ -38,10 +38,14 @@ type app struct {
 	siteTitle          string
 	siteTagline        string
 	icpNumber          string
+	uiScale            int
 	aiBaseURL          string
 	aiAPIKey           string
 	aiModel            string
 	aiReasoningEffort  string
+	aiModels           []string
+	aiModelsBase       string
+	aiModelsAt         string
 	allowedOrigins     []string
 	classSystemETags   map[string]string
 	configMu           sync.RWMutex
@@ -299,6 +303,7 @@ func (a *app) routes() http.Handler {
 	mux.HandleFunc("GET /api/classes/by-teacher/{teacherId}", a.publicClasses)
 	mux.HandleFunc("GET /api/classes/{id}/students/public", a.publicStudents)
 	mux.HandleFunc("POST /api/results", a.submitResult)
+	mux.HandleFunc("POST /api/segment", a.segmentText)
 	mux.HandleFunc("GET /ws", a.websocket)
 
 	secured := http.NewServeMux()

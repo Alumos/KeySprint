@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -11,6 +12,9 @@ const (
 	maxSiteTitleRunes   = 40
 	maxSiteTaglineRunes = 60
 	maxSiteICPRunes     = 40
+	defaultUIScale      = 100
+	minUIScale          = 75
+	maxUIScale          = 150
 )
 
 // siteConfig is the public appearance of the deployment: the brand shown in
@@ -21,6 +25,19 @@ type siteConfig struct {
 	Title   string `json:"title"`
 	Tagline string `json:"tagline"`
 	ICP     string `json:"icp"`
+	UIScale int    `json:"ui_scale"`
+}
+
+// clampUIScale keeps the interface scale inside the range the layout is known
+// to survive: 75% fits a crowded projector, 150% helps a small classroom screen.
+func clampUIScale(value int) int {
+	if value < minUIScale {
+		return minUIScale
+	}
+	if value > maxUIScale {
+		return maxUIScale
+	}
+	return value
 }
 
 // loadSiteConfig applies appearance settings saved through the admin console.
@@ -30,6 +47,7 @@ func (a *app) loadSiteConfig() {
 	a.siteTitle = defaultSiteTitle
 	a.siteTagline = defaultSiteTagline
 	a.icpNumber = ""
+	a.uiScale = defaultUIScale
 	values := map[string]*string{
 		"site_title":   &a.siteTitle,
 		"site_tagline": &a.siteTagline,
@@ -44,6 +62,12 @@ func (a *app) loadSiteConfig() {
 	if a.siteTitle == "" {
 		a.siteTitle = defaultSiteTitle
 	}
+	var storedScale string
+	if err := a.db.QueryRow("SELECT value FROM app_meta WHERE key=?", "ui_scale").Scan(&storedScale); err == nil {
+		if parsed, err := strconv.Atoi(strings.TrimSpace(storedScale)); err == nil && parsed != 0 {
+			a.uiScale = clampUIScale(parsed)
+		}
+	}
 }
 
 func (a *app) currentSite() siteConfig {
@@ -53,7 +77,7 @@ func (a *app) currentSite() siteConfig {
 	if title == "" {
 		title = defaultSiteTitle
 	}
-	return siteConfig{Title: title, Tagline: a.siteTagline, ICP: a.icpNumber}
+	return siteConfig{Title: title, Tagline: a.siteTagline, ICP: a.icpNumber, UIScale: a.uiScale}
 }
 
 // getSite is public: every page needs the brand and footer before login.
@@ -72,6 +96,10 @@ func (a *app) updateSite(w http.ResponseWriter, r *http.Request) {
 	in.Title = strings.TrimSpace(in.Title)
 	in.Tagline = strings.TrimSpace(in.Tagline)
 	in.ICP = strings.TrimSpace(in.ICP)
+	if in.UIScale == 0 {
+		in.UIScale = defaultUIScale
+	}
+	in.UIScale = clampUIScale(in.UIScale)
 	if in.Title == "" {
 		writeError(w, http.StatusBadRequest, "网站标题不能为空")
 		return
@@ -98,6 +126,7 @@ func (a *app) updateSite(w http.ResponseWriter, r *http.Request) {
 		"site_title":   in.Title,
 		"site_tagline": in.Tagline,
 		"icp_number":   in.ICP,
+		"ui_scale":     strconv.Itoa(in.UIScale),
 	} {
 		if _, err = tx.Exec("INSERT INTO app_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, value); err != nil {
 			_ = tx.Rollback()
@@ -114,6 +143,7 @@ func (a *app) updateSite(w http.ResponseWriter, r *http.Request) {
 	a.siteTitle = in.Title
 	a.siteTagline = in.Tagline
 	a.icpNumber = in.ICP
+	a.uiScale = in.UIScale
 	a.configMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "site": in})
 }

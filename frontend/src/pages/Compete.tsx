@@ -22,6 +22,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { Badge, Button, Modal, StatStrip } from "../components/ui";
 import { api, json, wsURL } from "../lib/api";
+import { fetchWordStarts } from "../lib/segment";
 import { useSite } from "../lib/site";
 import type { Article, Competition } from "../lib/types";
 import {
@@ -54,6 +55,8 @@ type CharCellProps = {
   pinyinText: string;
   value?: string;
   caret: boolean;
+  wordStart: boolean;
+  inWord: boolean;
   match: (expected: string, typed: string) => boolean;
   onSelect: (index: number) => void;
 };
@@ -67,13 +70,15 @@ const CharCell = memo(function CharCell({
   pinyinText,
   value,
   caret,
+  wordStart,
+  inWord,
   match,
   onSelect,
 }: CharCellProps) {
   const state = value !== undefined ? (match(char, value) ? "is-correct" : "is-wrong") : "";
   return (
     <span
-      className={`char-cell ${state} ${caret ? "is-caret" : ""}`}
+      className={`char-cell ${state} ${caret ? "is-caret" : ""} ${wordStart ? "word-start" : ""} ${inWord ? "in-word" : ""}`}
       data-char-index={index}
       onClick={(event) => {
         event.stopPropagation();
@@ -199,6 +204,47 @@ export default function Compete() {
     [article, options],
   );
   const chars = useMemo(() => Array.from(content), [content]);
+  const [wordStarts, setWordStarts] = useState<number[] | null>(null);
+  const accessCode = comp?.access_code || "";
+  useEffect(() => {
+    setWordStarts(null);
+    if (!options.segmentWords || !content || !accessCode) return;
+    let cancelled = false;
+    fetchWordStarts(accessCode, content)
+      .then((starts) => {
+        if (!cancelled) setWordStarts(starts);
+      })
+      .catch(() => {
+        if (!cancelled) setWordStarts(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [options.segmentWords, content, accessCode]);
+  const wordInfo = useMemo(() => {
+    if (!wordStarts || wordStarts.length === 0) return null;
+    const starts = new Set(wordStarts);
+    const ids = new Int32Array(chars.length);
+    let word = -1;
+    for (let i = 0; i < chars.length; i++) {
+      if (starts.has(i)) word += 1;
+      ids[i] = word;
+    }
+    return { starts, ids, startsList: wordStarts };
+  }, [wordStarts, chars]);
+  const currentWordId = wordInfo ? wordInfo.ids[cursor] ?? -1 : -1;
+  const currentWord = useMemo(() => {
+    if (!wordInfo || currentWordId < 0) return "";
+    const start = wordInfo.startsList[currentWordId] ?? 0;
+    const end = wordInfo.startsList[currentWordId + 1] ?? chars.length;
+    // The HUD shows the word itself; trailing punctuation belongs to the block
+    // visually but would read oddly in "当前词：清晨，".
+    return chars
+      .slice(start, end)
+      .join("")
+      .replace(/\s+/g, "")
+      .replace(/[\p{P}\p{S}]+$/u, "");
+  }, [wordInfo, currentWordId, chars]);
   const totalCount = useMemo(() => chars.reduce((n, ch) => n + Number(ch !== "\n"), 0), [chars]);
   const sameChar = useCallback(
     (expected: string, typed: string) => equivalentChar(expected, typed, options),
@@ -483,11 +529,13 @@ export default function Compete() {
         pinyinText={py[i] || ""}
         value={buffer[i]}
         caret={cursor === i && focused && status === "running"}
+        wordStart={wordInfo ? wordInfo.starts.has(i) : false}
+        inWord={wordInfo ? wordInfo.ids[i] === currentWordId : false}
         match={sameChar}
         onSelect={selectChar}
       />
     )),
-    [chars, py, buffer, cursor, focused, status, sameChar, selectChar],
+    [chars, py, buffer, cursor, focused, status, sameChar, selectChar, wordInfo, currentWordId],
   );
   function keydown(e: React.KeyboardEvent) {
     if (composing.current) return;
@@ -606,7 +654,7 @@ export default function Compete() {
               </Badge>
               <span>{article?.title || "等待加载范文"}</span>
             </div>
-            <span>点击文字区域后使用中文输入法输入</span>
+            <span>{currentWord ? `当前词：${currentWord}` : "点击文字区域后使用中文输入法输入"}</span>
           </div>
           {status === "waiting" ? (
             <div className="waiting-state">

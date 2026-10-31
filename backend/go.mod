@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/extrame/xls v0.0.1
+	github.com/go-ego/gse v1.1.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/gorilla/websocket v1.5.3
 	github.com/xuri/excelize/v2 v2.9.1
@@ -21,6 +22,7 @@ require (
 	github.com/richardlehane/mscfb v1.0.4 // indirect
 	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/tiendc/go-deepcopy v1.6.0 // indirect
+	github.com/vcaesar/cedar v0.50.0 // indirect
 	github.com/xuri/efp v0.0.1 // indirect
 	github.com/xuri/nfp v0.0.1 // indirect
 	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0 // indirect

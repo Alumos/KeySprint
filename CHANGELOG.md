@@ -8,6 +8,19 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [2.1.0] - 2026-11-01
+
+### Added
+
+- 文本选项新增「分词输入」：按词分组显示——词间留出空隙、当前词下方画线、顶部提示「当前词」，帮助学生以词为单位输入。
+  - 后端 `segment.go` 使用纯 Go 的 go-ego/gse（jieba 词库）做分词，词典懒加载并缓存文本结果；新增 `POST /api/segment`（需有效比赛编号，≤8000 字）。
+  - 分词只是显示提示，不改变要输入的文字与计分口径；未勾选该选项的竞赛完全走原逻辑。
+- AI 模型选择改为与系统一致的下拉组件：探测后完整列出上游全部模型（含「自定义模型…」手填入口），不再依赖浏览器原生 datalist。
+- 系统配置新增「界面字号」（75–150%，预设 100% = 新设计基准，观感约为旧版 125%）：保存后整个界面按百分比缩放，适配不同机房屏幕比例；并修复缩放后下拉/弹窗定位漂移的问题。
+- AI 生成进行中显示转圈动画，文章库标题去掉无意义的文档图标。
+- 探测到的模型列表写入数据库缓存（`app_meta.ai_models_cache`）：刷新页面、重启服务后模型下拉依然可用，只有下一次探测成功才会整表覆盖；探测失败时保留旧缓存。
+- 文章库标题旁的「AI」来源标记增加间距，不再贴着标题文字。
+
 ## [2.0.0] - 2026-10-31
 
 ### Added
@@ -151,7 +164,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v2.0.0
 [1.8.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.8.0
 [1.7.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.7.0
