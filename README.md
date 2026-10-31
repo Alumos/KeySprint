@@ -29,7 +29,7 @@ KeySprint（键跃）是一套可自托管的中文输入课堂工具。教师�
 | 学生赛场 | 教师工作台 | 系统底座 |
 | --- | --- | --- |
 | 比赛编号快速加入 | 范文上传、编辑与共享 | Go 单进程 + SQLite WAL |
-| 名单选人或手动填写身份 | 多场竞赛并行控制 | WebSocket 实时发令 |
+| 名单选人或手动填写身份 | 多场竞赛并行控制、AI 生成范文 | WebSocket 实时发令 |
 | 逐字拼音提示，可按场关闭 | 在线名单与自动停赛 | 刷新恢复与成绩择优保存 |
 | 中文输入法组合输入与纠错 | 个人/班级趋势与成绩导出 | ClassOrbit 班级同步 |
 
@@ -71,7 +71,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=1.8.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=2.0.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ### ClassOrbit 8080 + KeySprint 8081
 
@@ -137,7 +137,7 @@ docker compose -f compose.vps.yaml ps
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v1.8.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v2.0.0`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；
@@ -167,6 +167,20 @@ make version
 | `CLASS_SYSTEM_TOKEN` | 空 | 与 ClassOrbit 完全一致的共享 Bearer 密钥 |
 | `CLASS_SYSTEM_TIMEOUT` | `8s` | 外部请求超时 |
 | `ALLOWED_ORIGINS` | 空 | WebSocket 允许的来源，逗号分隔；CDN 回源 Host 与页面域名不一致时填写 |
+| `AI_BASE_URL` | 空 | OpenAI 兼容接口地址（`/v1`），建议在后台配置 |
+| `AI_API_KEY` | 空 | AI 接口密钥，建议在后台配置（只存数据库） |
+| `AI_MODEL` | `gpt-6-luna` | 默认生成模型 |
+| `AI_REASONING_EFFORT` | `medium` | 思考强度：`low` / `medium` / `high` |
+
+## ✦ AI 文章生成
+
+后台「系统配置 → AI 文章生成」可对接任意 OpenAI 兼容接口（`/v1` 地址 + API Key），支持**探测上游模型列表**、设置默认模型与**思考强度**（low / medium / high）。配置保存后，文章管理的「AI 生成」按主题、体裁与字数范围生成范文，直接写入文章库并标记来源为「AI 生成」。
+
+- 默认模型 `gpt-6-luna`、思考强度 `medium`；接口地址与密钥只保存在本机数据库，页面上只回显末 4 位，留空保存不会覆盖已有密钥。
+- 上游不认识 `reasoning_effort` 时会自动降级重试一次，兼容更多第三方网关。
+- 生成文章与手动文章同等管理（预览、编辑、删除、选用），来源记录在 `articles.source`。
+- 环境变量 `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` / `AI_REASONING_EFFORT` 可作为初始默认值；后台保存后以数据库为准。
+- 需要访问所选 AI 接口；纯内网（教育专网只能连国内 IP）环境请确认网关可达，否则 AI 功能不可用，其余功能不受影响。
 
 ## ✦ ClassOrbit 同步
 

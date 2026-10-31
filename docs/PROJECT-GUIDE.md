@@ -1,6 +1,6 @@
 # KeySprint 项目说明（架构 / 开发 / 部署）
 
-> 面向本地开发与自托管部署的中文说明。当前版本：`VERSION` 文件（1.8.0），代码基线 `main`。
+> 面向本地开发与自托管部署的中文说明。当前版本：`VERSION` 文件（2.0.0），代码基线 `main`。
 > 部署形态：一台国内 VPS 上 Docker 单容器（HTTP 某端口）→ 腾讯云 EdgeOne CDN 加速并终结 HTTPS → HTTP 回源。
 
 ## 1. 一句话架构
@@ -43,6 +43,8 @@
 | `handlers_classes.go` | 班级/学生、Excel 导入、按比赛编号公开名单、学生与班级分析 |
 | `handlers_integration.go` | ClassOrbit 集成配置读写（存 `app_meta`，优先于环境变量） |
 | `handlers_site.go` | 系统外观配置：网站标题、副标题、ICP 备案号（存 `app_meta`，公开只读 + 管理员写入） |
+| `ai.go` | AI 文章生成：OpenAI 兼容客户端、模型探测、思考强度降级重试、提示词与结果解析（JSON/纯文本/代码块） |
+| `handlers_ai.go` | AI 配置读写（密钥掩码）、`POST /api/ai/models` 探测、`POST /api/ai/generate` 生成并入库（`source='ai'`） |
 | `class_system.go` | ClassOrbit 名单同步（Bearer 共享密钥、ETag、全量对账、软停用） |
 | `text_options.go` | 文本选项 JSON 模型与旧数据兼容解析 |
 | `util.go` | JSON 响应、错误体、请求体限制、路径参数 |
@@ -65,7 +67,7 @@
 | `pages/Admin.tsx` | 工作台外壳：侧栏 6 模块、改密、退出、toast |
 | `pages/StudentLogin.tsx` | 学生入口：比赛编号 → 班级/名单选人或手填 |
 | `pages/Compete.tsx` | 赛场：IME 输入、计时、WebSocket、断点恢复、提交重试 |
-| `pages/admin/*.tsx` | 文章、班级、竞赛、成绩、教师、名单来源、系统配置七个模块 |
+| `pages/admin/*.tsx` | 文章（含 AI 生成弹窗与文章库筛选）、班级、竞赛、成绩、教师、名单来源、系统配置（外观 + AI 面板）七个模块 |
 
 ### 根目录
 
@@ -198,6 +200,7 @@ go run .
 | `CLASS_SOURCE` | `manual` | 名单来源 manual / classorbit |
 | `CLASS_SYSTEM_URL` / `_PATH` / `_TOKEN` / `_TIMEOUT` | 空 / `/api/integration/classes` / 空 / `8s` | ClassOrbit 对接 |
 | `HEALTHCHECK_URL` | `http://127.0.0.1:8080/api/health` | `--healthcheck` 子命令目标；改 ADDR 时同步改它 |
+| `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` / `AI_REASONING_EFFORT` | 空 / 空 / `gpt-6-luna` / `medium` | AI 文章生成的默认值；后台保存后数据库优先 |
 
 `app_meta` 中保存过的 ClassOrbit 配置优先于环境变量。
 
@@ -271,3 +274,10 @@ go run .
 - 新增 `deploy/windows/` 启动脚本与 [LAN-DEPLOY.md](LAN-DEPLOY.md) 局域网部署指南；`.bat` 打包时转 GBK、`.ps1` 加 UTF-8 BOM，避免中文乱码。
 - 容器镜像改为 `linux/amd64` 单架构，CI 移除 QEMU（部署目标均为 amd64）。
 - 修复内网 `http://IP` 非安全上下文下「复制比赛编号」失效：`lib/clipboard.ts` 回退 `execCommand`，已用真实鼠标点击验证。
+
+## 18. 本次改动：AI 生成文章与文章库重构（v2.0.0）
+
+- 后端 `ai.go`/`handlers_ai.go`：OpenAI 兼容客户端（`/models` 探测、`/chat/completions` 生成），思考强度 `reasoning_effort` 不支持时自动降级重试；生成结果按 JSON → 代码块 → 纯文本三级解析并清洗；超时 120s、响应体 1 MiB 上限。
+- 配置存 `app_meta`：`ai_base_url` / `ai_api_key` / `ai_model` / `ai_reasoning_effort`；GET 只返回末 4 位掩码，PUT 留空不覆盖密钥；全部接口仅管理员可用。
+- 文章新增 `source` 列（`manual` / `ai`），启动时幂等迁移；生成接口直接入库（`source='ai'`）。
+- 前端文章管理合并为单一文章库：上传教师 / 文章来源筛选、导入时间与字数排序、每页 10 条分页；AI 生成弹窗（主题/体裁/字数/额外要求）；系统配置新增 AI 面板（地址、密钥、模型 + 探测、思考强度）。

@@ -8,6 +8,19 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [2.0.0] - 2026-10-31
+
+### Added
+
+- **AI 一键生成范文**：文章管理新增「AI 生成」，按主题、体裁（记叙文/说明文/散文/童话/科普）与字数范围生成中文打字范文，生成后直接写入文章库并标记来源为「AI 生成」（新增 `articles.source`，旧数据自动归为手动上传）。
+- 后台「系统配置 → AI 文章生成」：可设置 OpenAI 兼容接口地址、API 密钥（只存数据库，页面仅回显末 4 位，留空不覆盖）、默认模型（默认 `gpt-6-luna`）与思考强度（默认 `medium`），并支持**探测上游模型列表**。
+- 上游不支持 `reasoning_effort` 时自动降级重试一次，兼容更多第三方 AI 网关。
+- 新增环境变量 `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` / `AI_REASONING_EFFORT` 作为初始默认值，后台配置优先。
+
+### Changed
+
+- **文章管理页重构**：合并「我的文章」与「共享文章库」为单一「文章库」，支持按上传教师、文章来源筛选，按导入时间或字数排序，并分页（每页 10 条），页面不再无限变长；表格改为整宽展示，操作列完整可见。
+
 ## [1.8.0] - 2026-10-31
 
 ### Added
@@ -138,7 +151,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v2.0.0
 [1.8.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.8.0
 [1.7.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.7.0
 [1.6.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.6.0

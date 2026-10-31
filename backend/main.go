@@ -38,6 +38,10 @@ type app struct {
 	siteTitle          string
 	siteTagline        string
 	icpNumber          string
+	aiBaseURL          string
+	aiAPIKey           string
+	aiModel            string
+	aiReasoningEffort  string
 	allowedOrigins     []string
 	classSystemETags   map[string]string
 	configMu           sync.RWMutex
@@ -104,11 +108,16 @@ func main() {
 		classSystemToken:   os.Getenv("CLASS_SYSTEM_TOKEN"),
 		classSystemTimeout: timeout,
 		classSource:        normalizeClassSource(getenv("CLASS_SOURCE", "manual")),
+		aiBaseURL:          strings.TrimRight(os.Getenv("AI_BASE_URL"), "/"),
+		aiAPIKey:           os.Getenv("AI_API_KEY"),
+		aiModel:            getenv("AI_MODEL", defaultAIModel),
+		aiReasoningEffort:  getenv("AI_REASONING_EFFORT", defaultAIReasoning),
 		classSystemETags:   map[string]string{},
 		timers:             map[int64]*time.Timer{},
 	}
 	_ = a.loadIntegrationConfig()
 	a.loadSiteConfig()
+	a.loadAIConfig()
 	a.restoreTimers()
 	srv := &http.Server{Addr: getenv("ADDR", ":8080"), Handler: a.routes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 75 * time.Second}
 	log.Printf("KeySprint %s (%s) listening on %s", version, commit, srv.Addr)
@@ -133,6 +142,7 @@ func migrateSchema(db *sql.DB) error {
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN remote_id TEXT`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN active INTEGER NOT NULL DEFAULT 1`)
 	_, _ = db.Exec(`ALTER TABLE classes ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual','classorbit'))`)
+	_, _ = db.Exec(`ALTER TABLE articles ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`)
 	_, _ = db.Exec(`ALTER TABLE results ADD COLUMN class_id INTEGER REFERENCES classes(id) ON DELETE SET NULL`)
 	_, _ = db.Exec(`UPDATE classes SET source='classorbit' WHERE remote_id IS NOT NULL`)
 	// Backfill legacy results only when student ID + name identifies one class.
@@ -295,6 +305,10 @@ func (a *app) routes() http.Handler {
 	secured.HandleFunc("GET /api/session", a.session)
 	secured.HandleFunc("POST /api/ws-ticket", a.createWebsocketTicket)
 	secured.HandleFunc("PUT /api/site", a.updateSite)
+	secured.HandleFunc("GET /api/ai/config", a.getAIConfig)
+	secured.HandleFunc("PUT /api/ai/config", a.updateAIConfig)
+	secured.HandleFunc("POST /api/ai/models", a.probeAIModelsHandler)
+	secured.HandleFunc("POST /api/ai/generate", a.generateAIArticle)
 	secured.HandleFunc("GET /api/teachers", a.getTeachers)
 	secured.HandleFunc("POST /api/teachers", a.createTeacher)
 	secured.HandleFunc("DELETE /api/teachers/{id}", a.deleteTeacher)

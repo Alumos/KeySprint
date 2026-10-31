@@ -11,16 +11,16 @@ func scanArticleRows(rows *sql.Rows) []map[string]any {
 	for rows.Next() {
 		var id int64
 		var teacher sql.NullInt64
-		var title, content, created string
-		_ = rows.Scan(&id, &teacher, &title, &content, &created)
-		out = append(out, map[string]any{"id": id, "teacher_id": teacher.Int64, "title": title, "content": content, "created_at": created})
+		var title, content, source, created string
+		_ = rows.Scan(&id, &teacher, &title, &content, &source, &created)
+		out = append(out, map[string]any{"id": id, "teacher_id": teacher.Int64, "title": title, "content": content, "source": source, "created_at": created})
 	}
 	return out
 }
 
 func (a *app) getArticles(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	rows, err := a.db.Query("SELECT id,teacher_id,title,content,created_at FROM articles WHERE teacher_id=? ORDER BY created_at DESC,id DESC", u.ID)
+	rows, err := a.db.Query("SELECT id,teacher_id,title,content,source,created_at FROM articles WHERE teacher_id=? ORDER BY created_at DESC,id DESC", u.ID)
 	if err != nil {
 		writeError(w, 500, "读取文章失败")
 		return
@@ -38,16 +38,16 @@ func (a *app) getPublicArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	var title, content, created string
+	var title, content, source, created string
 	var teacher sql.NullInt64
-	err := a.db.QueryRow(`SELECT a.id,a.teacher_id,a.title,a.content,a.created_at FROM articles a
+	err := a.db.QueryRow(`SELECT a.id,a.teacher_id,a.title,a.content,a.source,a.created_at FROM articles a
 		WHERE a.id=? AND EXISTS(SELECT 1 FROM competitions c WHERE c.article_id=a.id AND c.access_code=? AND c.status IN ('waiting','running'))`,
-		pathInt(r, "id"), code).Scan(&id, &teacher, &title, &content, &created)
+		pathInt(r, "id"), code).Scan(&id, &teacher, &title, &content, &source, &created)
 	if err != nil {
 		writeError(w, 404, "文章不存在")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "teacher_id": teacher.Int64, "title": title, "content": content, "created_at": created})
+	writeJSON(w, 200, map[string]any{"id": id, "teacher_id": teacher.Int64, "title": title, "content": content, "source": source, "created_at": created})
 }
 
 func articleInput(w http.ResponseWriter, r *http.Request) (string, string, bool) {
@@ -70,7 +70,7 @@ func (a *app) createArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	res, err := a.db.Exec("INSERT INTO articles(teacher_id,title,content) VALUES(?,?,?)", u.ID, title, content)
+	res, err := a.db.Exec("INSERT INTO articles(teacher_id,title,content,source) VALUES(?,?,?,'manual')", u.ID, title, content)
 	if err != nil {
 		writeError(w, 500, "创建失败")
 		return
@@ -120,7 +120,7 @@ func (a *app) deleteArticle(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) getLibrary(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	rows, err := a.db.Query(`SELECT a.id,a.title,a.content,a.created_at,COALESCE(t.display_name,''),CASE WHEN a.teacher_id=? THEN 1 ELSE 0 END,CASE WHEN ta.article_id IS NULL THEN 0 ELSE 1 END FROM articles a LEFT JOIN teachers t ON t.id=a.teacher_id LEFT JOIN teacher_articles ta ON ta.article_id=a.id AND ta.teacher_id=? ORDER BY a.created_at DESC,a.id DESC`, u.ID, u.ID)
+	rows, err := a.db.Query(`SELECT a.id,a.title,a.content,a.source,a.created_at,COALESCE(t.display_name,''),CASE WHEN a.teacher_id=? THEN 1 ELSE 0 END,CASE WHEN ta.article_id IS NULL THEN 0 ELSE 1 END FROM articles a LEFT JOIN teachers t ON t.id=a.teacher_id LEFT JOIN teacher_articles ta ON ta.article_id=a.id AND ta.teacher_id=? ORDER BY a.created_at DESC,a.id DESC`, u.ID, u.ID)
 	if err != nil {
 		writeError(w, 500, "读取文章库失败")
 		return
@@ -129,10 +129,10 @@ func (a *app) getLibrary(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for rows.Next() {
 		var id int64
-		var title, content, created, uploader string
+		var title, content, source, created, uploader string
 		var mine, picked int
-		_ = rows.Scan(&id, &title, &content, &created, &uploader, &mine, &picked)
-		out = append(out, map[string]any{"id": id, "title": title, "content": content, "created_at": created, "uploader": uploader, "mine": mine, "picked": picked})
+		_ = rows.Scan(&id, &title, &content, &source, &created, &uploader, &mine, &picked)
+		out = append(out, map[string]any{"id": id, "title": title, "content": content, "source": source, "created_at": created, "uploader": uploader, "mine": mine, "picked": picked})
 	}
 	writeJSON(w, 200, out)
 }

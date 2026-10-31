@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,8 +32,9 @@ func testApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	a := &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", classSystemETags: map[string]string{}, timers: map[int64]*time.Timer{}}
+	a := &app{db: db, hub: newHub(), jwtSecret: "test-secret", publicDir: t.TempDir(), classSource: "manual", classSystemETags: map[string]string{}, timers: map[int64]*time.Timer{}, aiModel: defaultAIModel, aiReasoningEffort: defaultAIReasoning}
 	a.loadSiteConfig()
+	a.loadAIConfig()
 	return a
 }
 
@@ -642,5 +645,193 @@ func TestSiteUpdateRequiresAdmin(t *testing.T) {
 	}
 	if status, _ := request(t, h, "GET", "/api/site", "", ""); status != http.StatusOK {
 		t.Fatalf("public site read: %d", status)
+	}
+}
+func TestAIConfigDefaultsSaveAndMask(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+
+	status, cfg := request(t, h, "GET", "/api/ai/config", "", token)
+	if status != http.StatusOK || cfg["model"] != defaultAIModel || cfg["reasoningEffort"] != defaultAIReasoning || cfg["hasKey"] != false {
+		t.Fatalf("default ai config: %d %v", status, cfg)
+	}
+	status, _ = request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"https://ai.example.com/v1/","apiKey":"sl_secret_abcd1234","model":"gpt-6-luna","reasoningEffort":"high"}`, token)
+	if status != http.StatusOK {
+		t.Fatalf("save ai config: %d", status)
+	}
+	status, cfg = request(t, h, "GET", "/api/ai/config", "", token)
+	if status != http.StatusOK || cfg["baseUrl"] != "https://ai.example.com/v1" || cfg["keyHint"] != "****1234" || cfg["hasKey"] != true || cfg["reasoningEffort"] != "high" {
+		t.Fatalf("masked ai config: %d %v", status, cfg)
+	}
+	a.loadAIConfig()
+	if got := a.aiConfigSnapshot(); got.APIKey != "sl_secret_abcd1234" || got.Model != "gpt-6-luna" || got.BaseURL != "https://ai.example.com/v1" {
+		t.Fatalf("persisted ai config: %#v", got)
+	}
+	// Empty apiKey keeps the stored key; only model and effort change.
+	request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"https://ai.example.com/v1","apiKey":"","model":"other-model","reasoningEffort":"low"}`, token)
+	if got := a.aiConfigSnapshot(); got.APIKey != "sl_secret_abcd1234" || got.Model != "other-model" || got.ReasoningEffort != "low" {
+		t.Fatalf("keep api key: %#v", got)
+	}
+	if status, _ := request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"ftp://nope","model":"m","reasoningEffort":"low"}`, token); status != http.StatusBadRequest {
+		t.Fatalf("bad base url: %d", status)
+	}
+	if status, _ := request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"https://x.example","model":"m","reasoningEffort":"extreme"}`, token); status != http.StatusBadRequest {
+		t.Fatalf("bad reasoning effort: %d", status)
+	}
+}
+
+func TestAIConfigRequiresAdmin(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	adminToken := loginTeacher(t, h)
+	if status, out := request(t, h, "POST", "/api/teachers", `{"Username":"teacher2","Password":"secret1","DisplayName":"普通教师"}`, adminToken); status != http.StatusOK {
+		t.Fatalf("create teacher: %d %v", status, out)
+	}
+	_, login := request(t, h, "POST", "/api/admin/login", `{"Username":"teacher2","Password":"secret1"}`, "")
+	token, _ := login["token"].(string)
+	if status, _ := request(t, h, "GET", "/api/ai/config", "", token); status != http.StatusForbidden {
+		t.Fatalf("non-admin ai config: %d", status)
+	}
+	if status, _ := request(t, h, "POST", "/api/ai/models", "", token); status != http.StatusForbidden {
+		t.Fatalf("non-admin ai models: %d", status)
+	}
+}
+
+func TestAIProbeModels(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"zeta-model"},{"id":"alpha-model"}]}`)
+	}))
+	defer upstream.Close()
+	if status, _ := request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"`+upstream.URL+`/v1","apiKey":"test-key","model":"alpha-model","reasoningEffort":"medium"}`, token); status != http.StatusOK {
+		t.Fatalf("configure ai: %d", status)
+	}
+	status, out := request(t, h, "POST", "/api/ai/models", "", token)
+	models, _ := out["models"].([]any)
+	if status != http.StatusOK || len(models) != 2 || models[0] != "alpha-model" || models[1] != "zeta-model" {
+		t.Fatalf("probe models: %d %v", status, out)
+	}
+}
+
+func TestAIGenerateArticle(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	var sawReasoning bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		sawReasoning = strings.Contains(string(body), `"reasoning_effort":"medium"`)
+		w.Header().Set("Content-Type", "application/json")
+		payload := `{"title":"秋天的校园","content":"` + strings.Repeat("秋风", 150) + `"}`
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, strconv.Quote(payload))
+	}))
+	defer upstream.Close()
+	if status, _ := request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"`+upstream.URL+`/v1","apiKey":"test-key","model":"gpt-6-luna","reasoningEffort":"medium"}`, token); status != http.StatusOK {
+		t.Fatalf("configure ai: %d", status)
+	}
+	status, out := request(t, h, "POST", "/api/ai/generate", `{"topic":"秋天的校园","style":"记叙文","minChars":150,"maxChars":300}`, token)
+	if status != http.StatusOK || out["success"] != true || out["title"] != "秋天的校园" {
+		t.Fatalf("generate: %d %v", status, out)
+	}
+	if !sawReasoning {
+		t.Fatal("reasoning_effort was not sent upstream")
+	}
+	chars, _ := out["chars"].(float64)
+	if chars < 150 || chars > 300 {
+		t.Fatalf("generated chars: %v", out["chars"])
+	}
+	var title, source string
+	if err := a.db.QueryRow("SELECT title, source FROM articles ORDER BY id DESC LIMIT 1").Scan(&title, &source); err != nil || title != "秋天的校园" || source != "ai" {
+		t.Fatalf("generated article row: %q %q %v", title, source, err)
+	}
+}
+
+func TestAIGenerateRetriesWithoutReasoning(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	attempts := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "reasoning_effort") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = io.WriteString(w, `{"error":{"message":"unsupported parameter: reasoning_effort"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		payload := `{"title":"雨后的操场","content":"` + strings.Repeat("雨", 120) + `"}`
+		_, _ = fmt.Fprintf(w, `{"choices":[{"message":{"content":%s}}]}`, strconv.Quote(payload))
+	}))
+	defer upstream.Close()
+	if status, _ := request(t, h, "PUT", "/api/ai/config", `{"baseUrl":"`+upstream.URL+`/v1","apiKey":"test-key","model":"gpt-6-luna","reasoningEffort":"high"}`, token); status != http.StatusOK {
+		t.Fatalf("configure ai: %d", status)
+	}
+	status, out := request(t, h, "POST", "/api/ai/generate", `{"topic":"雨后的操场","minChars":120,"maxChars":240}`, token)
+	if status != http.StatusOK || out["success"] != true {
+		t.Fatalf("generate with fallback: %d %v", status, out)
+	}
+	if attempts != 2 {
+		t.Fatalf("upstream attempts = %d, want 2", attempts)
+	}
+}
+
+func TestAIGenerateRequiresConfiguration(t *testing.T) {
+	a := testApp(t)
+	h := a.routes()
+	token := loginTeacher(t, h)
+	if status, _ := request(t, h, "POST", "/api/ai/generate", `{"topic":"春天","minChars":200,"maxChars":400}`, token); status != http.StatusBadRequest {
+		t.Fatalf("unconfigured generate: %d", status)
+	}
+	if status, _ := request(t, h, "POST", "/api/ai/generate", `{"topic":""}`, token); status != http.StatusBadRequest {
+		t.Fatalf("missing topic: %d", status)
+	}
+}
+
+func TestParseGeneratedArticle(t *testing.T) {
+	in := aiGenerateInput{MinChars: 100, MaxChars: 300}
+	cases := []struct {
+		name    string
+		raw     string
+		title   string
+		chars   int
+		wantErr bool
+	}{
+		{name: "json", raw: `{"title":"雨后","content":"` + strings.Repeat("雨", 120) + `"}`, title: "雨后", chars: 120},
+		{name: "fenced json", raw: "```json\n{\"title\":\"雨后\",\"content\":\"" + strings.Repeat("雨", 120) + "\"}\n```", title: "雨后", chars: 120},
+		{name: "plain text", raw: "标题：雨后\n\n" + strings.Repeat("雨", 120), title: "雨后", chars: 120},
+		{name: "too short", raw: `{"title":"短","content":"` + strings.Repeat("雨", 10) + `"}`, wantErr: true},
+		{name: "empty", raw: " ", wantErr: true},
+	}
+	for _, tc := range cases {
+		got, err := parseGeneratedArticle(tc.raw, in)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("%s: expected error", tc.name)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if got.Title != tc.title || got.Chars != tc.chars {
+			t.Fatalf("%s: got title=%q chars=%d", tc.name, got.Title, got.Chars)
+		}
 	}
 }

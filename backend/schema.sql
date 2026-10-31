@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS articles (
   teacher_id INTEGER REFERENCES teachers(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
   content TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

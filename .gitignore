@@ -1,5 +1,6 @@
 .DS_Store
 dist-windows/
+.cache/
 .env
 frontend/node_modules/
 frontend/dist/
