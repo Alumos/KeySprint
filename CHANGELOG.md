@@ -8,13 +8,17 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
-## [1.6.0] - 2026-10-31
+## [1.7.0] - 2026-10-31
 
 ### Added
 
-- 后台新增「系统配置」：网站标题、副标题与 ICP 备案号可在线修改，备案链接固定跳转 https://beian.miit.gov.cn/；项目不再内置特定备案号。
-- 竞赛历史与成绩明细表支持分页（每页 10 条，显示总条数与页码，可上一页/下一页）。
-- 前端启动时从 `/api/site` 读取站点外观，侧栏、登录页与页脚统一使用配置值。
+- 后台新增「系统配置」：网站标题、副标题与 ICP 备案号可在线修改，保存后立即生效；备案链接固定跳转 https://beian.miit.gov.cn/，项目不再内置特定备案号。
+- 竞赛历史与成绩明细表支持分页（每页 10 条，显示总条数与页码，可上一页/下一页，条数变化自动收敛）。
+- 前端启动时从 `/api/site` 读取站点外观，侧栏、登录页、赛场顶栏、浏览器标题与页脚统一使用配置值。
+
+## [1.6.0] - 2026-10-31
+
+### Added
 
 - 竞赛创建支持「文本选项」多选列表：拼音提示、去除符号、符号统一、去除换行；按竞赛以 JSON 持久化，旧数据与旧客户端继续兼容。
 - 教师 WebSocket 改用 90 秒一次性 ticket 鉴权；新增 `ALLOWED_ORIGINS` 配置，用于 CDN 回源 Host 与页面域名不一致的部署。
@@ -121,7 +125,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.7.0
 [1.6.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.6.0
 [1.5.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.5.0
 [1.4.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.4.0
