@@ -118,7 +118,7 @@ export default function SiteView({ notify }: { notify: (message: string) => void
         <Field label="ICP 备案号" hint="留空则不显示备案信息；填写后页脚固定跳转 https://beian.miit.gov.cn/">
           <Input value={form.icp} maxLength={40} onChange={event => set('icp', event.target.value)} placeholder="例如：苏ICP备2021038338号-1" />
         </Field>
-        <Field label="界面字号" hint={`预设 100%；可调 ${MIN_UI_SCALE}–${MAX_UI_SCALE}，保存后所有页面按百分比缩放（当前 ${form.ui_scale || 100}%）`}>
+        <Field label="界面字号" hint={`预设 100%；可调 ${MIN_UI_SCALE}–${MAX_UI_SCALE}，保存后所有页面按百分比缩放（当前 ${form.ui_scale || 100}%）。手机窄屏（≤760px）自动按 100% 显示，避免横向滚动`}>
           <Input type="number" min={MIN_UI_SCALE} max={MAX_UI_SCALE} step={5} value={form.ui_scale}
             onChange={event => setForm(current => ({ ...current, ui_scale: Number(event.target.value) }))}
             onBlur={() => setForm(current => ({ ...current, ui_scale: clampUIScale(current.ui_scale) }))} />

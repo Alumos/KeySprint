@@ -8,6 +8,16 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 
 - 后续变更先进入本节，发布时再归入对应版本。
 
+## [2.1.1] - 2026-11-01
+
+### Fixed
+
+- 手机/窄屏（≤760px）不再出现需要横向拖动的问题：
+  - 学生入口卡片原本写死 440px 宽，在 390px 手机上超出可视区约 200px，右侧内容被切掉；改为 `width:min(440px,100%)`，窄屏自适应。
+  - 界面字号的全站缩放以 1.25× 为基准，在手机上会把布局宽度压到约 312px 并整体溢出（含 `100vw` 的弹窗与提示条）；现在 ≤760px 自动按 100% 显示，桌面与投影仪仍按设定百分比缩放，旋转屏幕或改变窗口宽度会即时生效。
+  - 后台页面栅格（`.admin-page`、`.admin-grid`、`.stat-strip` 等）用的是 `1fr`，最小值为内容宽度，统计卡里的长文字会把整页撑宽（文章管理/成绩分析/教师管理最多超出约 276px）；统一改为 `minmax(0,1fr)`，页面回到屏宽，宽表格改为在卡片内部横向滑动。
+- 手机上的提示条（toast）限制最大宽度，不再溢出屏幕。
+
 ## [2.1.0] - 2026-11-01
 
 ### Added
@@ -164,7 +174,8 @@ KeySprint 遵循 [Semantic Versioning](https://semver.org/)，所有面向用户
 - bcrypt 密码存储、限时 JWT、管理员权限隔离和独立的班级同步密钥。
 - scratch 非 root 运行镜像、只读根文件系统、应用内健康检查和最小容器权限。
 
-[Unreleased]: https://github.com/Alumos/KeySprint/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Alumos/KeySprint/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/Alumos/KeySprint/releases/tag/v2.1.1
 [2.1.0]: https://github.com/Alumos/KeySprint/releases/tag/v2.1.0
 [2.0.0]: https://github.com/Alumos/KeySprint/releases/tag/v2.0.0
 [1.8.0]: https://github.com/Alumos/KeySprint/releases/tag/v1.8.0

@@ -53,7 +53,7 @@ flowchart LR
 | 去除换行 | 段落合并，文章连续显示 |
 | **分词输入** | 词与词之间留出空隙，正在输入的词下方有蓝色下划线，顶部提示「当前词：清晨」，帮助学生以词为单位输入 |
 
-后台「系统配置」还可调「界面字号」（75–150%，预设 100%）：整个界面按百分比缩放，适配不同机房的屏幕比例。
+后台「系统配置」还可调「界面字号」（75–150%，预设 100%）：整个界面按百分比缩放，适配不同机房的屏幕比例；手机窄屏（≤760px）自动按 100% 显示，避免横向滚动。
 
 分词由后端 Go 分词库（[go-ego/gse](https://github.com/go-ego/gse)，纯 Go、jieba 词库）在服务端完成：学生页面先按文本选项变换文章，再向 `POST /api/segment` 请求当前文本的词边界；接口要求有效比赛编号、单次不超过 8000 字，相同文本会命中内存缓存（首次加载词典约 300ms，之后约 2ms）。分词只是**显示提示**，不改变要输入的文字，也不影响计分口径。
 
@@ -87,7 +87,7 @@ docker compose -f compose.deploy.yaml up -d
 docker compose -f compose.deploy.yaml logs -f keysprint
 ```
 
-默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=2.1.0`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
+默认镜像为 `ghcr.io/alumos/keysprint:latest`，架构为 `linux/amd64`（Windows 免 Docker 部署见下一节）。生产环境建议在 `.env` 中固定完整版本，例如 `KEYSPRINT_TAG=2.1.1`。数据保存在独立卷 `keysprint_data` 的 `/data/keysprint.db`，更新容器不会删除数据。
 
 ### ClassOrbit 8080 + KeySprint 8081
 
@@ -153,7 +153,7 @@ docker compose -f compose.vps.yaml ps
 
 ## ✦ 版本与 Tag
 
-当前稳定版本为 `v2.1.0`。KeySprint 遵循 Semantic Versioning：
+当前稳定版本为 `v2.1.1`。KeySprint 遵循 Semantic Versioning：
 
 - `PATCH`：向后兼容的修复与安全更新；
 - `MINOR`：向后兼容的新功能；
